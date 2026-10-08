@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-[#f8fafc] text-slate-800 font-sans antialiased min-h-screen selection:bg-blue-500 selection:text-white;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Reference UI Cards & Panels */
+.app-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1.25rem; /* 20px */
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+}
+
+.app-card-hover {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.app-card-hover:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Hero Blue Gradient from Mockup */
+.hero-gradient {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%);
+}
+
+.hero-teal-gradient {
+  background: linear-gradient(135deg, #0d9488 0%, #14b8a6 50%, #2dd4bf 100%);
+}
+
+/* Concentric Waves for Voice AI */
+.concentric-wave {
+  position: relative;
+}
+.concentric-wave::before, .concentric-wave::after {
+  content: '';
+  position: absolute;
+  inset: -15px;
+  border-radius: 9999px;
+  border: 2px solid rgba(59, 130, 246, 0.25);
+  animation: pulse-ring 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+.concentric-wave::after {
+  inset: -30px;
+  border-color: rgba(59, 130, 246, 0.15);
+  animation-delay: 0.5s;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+/* Waveform bars for Voice */
+.wave-bar {
+  display: inline-block;
+  width: 3.5px;
+  border-radius: 9999px;
+  background: #3b82f6;
+  animation: wave 1.2s ease-in-out infinite;
+}
+.wave-bar:nth-child(2) { animation-delay: 0.15s; }
+.wave-bar:nth-child(3) { animation-delay: 0.3s; }
+.wave-bar:nth-child(4) { animation-delay: 0.45s; }
+.wave-bar:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1.2); }
+}
+
+/* Camera Laser Scanning Animation */
+.scan-laser-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #3b82f6, #60a5fa, #3b82f6, transparent);
+  box-shadow: 0 0 15px 3px rgba(59, 130, 246, 0.8);
+  animation: laser-scan 2s ease-in-out infinite alternate;
+}
+
+@keyframes laser-scan {
+  0% { top: 5%; }
+  100% { top: 92%; }
+}
