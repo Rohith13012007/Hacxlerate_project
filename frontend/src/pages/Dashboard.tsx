@@ -15,7 +15,8 @@ import {
   Clock,
   Sparkles,
   TrendingUp,
-  Activity
+  Activity,
+  LogOut
 } from 'lucide-react';
 import type { Language } from '../types';
 
@@ -30,7 +31,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onOpenQR }) =>
     setIsVoiceModalOpen,
     activeLanguage,
     setActiveLanguage,
-    sendMessageToCopilot
+    sendMessageToCopilot,
+    logout
   } = useHealth();
 
   const [promptInput, setPromptInput] = useState<string>('');
@@ -64,6 +66,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onOpenQR }) =>
             Here's your health overview for today.
           </p>
         </div>
+        <button
+          onClick={() => {
+            logout();
+            onNavigate('/');
+          }}
+          className="self-start sm:self-center px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 hover:border-rose-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+          title="Log out and return to Home"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Log Out to Home</span>
+        </button>
       </div>
 
       {/* Top Row: 4 Overview Cards matching Reference Design Panel 2 */}

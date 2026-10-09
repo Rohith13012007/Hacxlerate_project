@@ -7,7 +7,13 @@ import { EmergencyModal } from './components/EmergencyModal';
 import { QRCodeModal } from './components/QRCodeModal';
 import { AuthModal } from './components/AuthModal';
 
-// Pages
+// User Assigned Deliverables: Portal Gateway, Home Landing, Patient & Doctor Auth
+import { HomeLanding } from './pages/HomeLanding';
+import { AuthGateway } from './pages/AuthGateway';
+import { PatientLogin } from './pages/PatientLogin';
+import { DoctorLogin } from './pages/DoctorLogin';
+
+// Teammate Application Pages (Accessed after authentication / dashboard routing)
 import { Dashboard } from './pages/Dashboard';
 import { Assistant } from './pages/Assistant';
 import { HealthScan } from './pages/HealthScan';
@@ -30,7 +36,8 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') || '/';
-      setCurrentPath(hash);
+      const basePath = hash.split('?')[0];
+      setCurrentPath(basePath);
     };
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
@@ -39,14 +46,44 @@ const AppContent: React.FC = () => {
 
   const navigate = (path: string) => {
     window.location.hash = path;
-    setCurrentPath(path);
+    const basePath = path.split('?')[0];
+    setCurrentPath(basePath);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 1. DEFAULT ROOT ROUTE: HOME / LANDING (PDF Page 1)
+  if (currentPath === '/' || currentPath === '' || currentPath === '/home' || currentPath === '/landing') {
+    return <HomeLanding onNavigate={navigate} />;
+  }
+
+  // 2. PATIENT AUTHENTICATION ROUTES (PDF Pages 2, 3, 4)
+  if (currentPath === '/login' || currentPath === '/patient-login') {
+    return <PatientLogin onNavigate={navigate} initialStep="login" />;
+  }
+
+  if (currentPath === '/register' || currentPath === '/patient-register') {
+    return <PatientLogin onNavigate={navigate} initialStep="register" />;
+  }
+
+  // 2. DOCTOR AUTHENTICATION ROUTES
+  if (currentPath === '/doctor-login') {
+    return <DoctorLogin onNavigate={navigate} initialMode="login" />;
+  }
+
+  if (currentPath === '/doctor-register') {
+    return <DoctorLogin onNavigate={navigate} initialMode="register" />;
+  }
+
+  // 3. OPTIONAL AUTH GATEWAY
+  if (currentPath === '/gateway' || currentPath === '/auth') {
+    return <AuthGateway onNavigate={navigate} />;
+  }
+
+  // 4. TEAMMATE APPLICATION VIEWS (Dashboard, DoctorPortal, etc.)
   const renderPageComponent = () => {
     switch (currentPath) {
-      case '/':
-      case '':
+      case '/dashboard':
+      case '/patient-dashboard':
         return <Dashboard onNavigate={navigate} onOpenQR={() => setIsQRModalOpen(true)} />;
       case '/assistant':
         return <Assistant />;
@@ -70,20 +107,22 @@ const AppContent: React.FC = () => {
       case '/profile':
         return <Profile />;
       case '/doctor-access':
+      case '/doctor':
+      case '/doctor-portal':
         return <DoctorPortal />;
       case '/emergency':
         return <Emergency />;
       case '/settings':
         return <Settings />;
       default:
-        return <Dashboard onNavigate={navigate} onOpenQR={() => setIsQRModalOpen(true)} />;
+        return <AuthGateway onNavigate={navigate} />;
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans antialiased selection:bg-blue-500 selection:text-white">
       {/* Top Header */}
-      <Navbar onOpenQR={() => setIsQRModalOpen(true)} />
+      <Navbar onOpenQR={() => setIsQRModalOpen(true)} onNavigate={navigate} />
 
       {/* Main Body */}
       <div className="flex-1 flex w-full px-4 lg:px-8 py-6 gap-6">
@@ -94,7 +133,7 @@ const AppContent: React.FC = () => {
         </main>
       </div>
 
-      {/* Global Modals */}
+      {/* Modals */}
       <VoiceAssistantModal />
       <EmergencyModal />
       <AuthModal />

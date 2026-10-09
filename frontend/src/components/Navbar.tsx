@@ -14,9 +14,10 @@ import {
 
 interface NavbarProps {
   onOpenQR: () => void;
+  onNavigate?: (path: string) => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenQR }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenQR, onNavigate }) => {
   const { 
     activeLanguage, 
     setActiveLanguage, 
@@ -40,7 +41,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQR }) => {
     <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 lg:px-8 py-3 flex items-center justify-between shadow-xs">
       {/* Brand & Search area matching Reference Design */}
       <div className="flex items-center space-x-6 flex-1 max-w-xl">
-        <h2 className="font-black text-lg text-blue-600 tracking-tight flex items-center space-x-2 flex-shrink-0 cursor-pointer">
+        <h2 
+          onClick={() => onNavigate ? onNavigate('/') : (window.location.hash = '/')}
+          className="font-black text-lg text-blue-600 tracking-tight flex items-center space-x-2 flex-shrink-0 cursor-pointer"
+          title="Return to Home"
+        >
           <span className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 font-bold text-sm">H</span>
           <span className="text-slate-900 font-extrabold">Health<span className="text-blue-600">Copilot</span></span>
         </h2>
@@ -136,9 +141,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQR }) => {
               </div>
             </div>
             <button
-              onClick={logout}
-              className="ml-2 px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1"
-              title="Logout"
+              onClick={() => {
+                logout();
+                if (onNavigate) onNavigate('/');
+                else window.location.hash = '/';
+              }}
+              className="ml-2 px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+              title="Logout and return to Home"
             >
               <LogOut className="w-3 h-3" />
               <span className="hidden md:inline">Logout</span>

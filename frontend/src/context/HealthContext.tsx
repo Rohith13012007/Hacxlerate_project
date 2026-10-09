@@ -48,7 +48,7 @@ interface HealthContextType {
   currentUser: AuthUser | null;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string, fullName?: string, age?: number, gender?: string) => Promise<boolean>;
   register: (email: string, password: string, fullName: string, age?: number, gender?: string) => Promise<boolean>;
   logout: () => void;
 
@@ -130,32 +130,33 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string, fullName?: string, age?: number, gender?: string): Promise<boolean> => {
     try {
       const res = await fetch('http://localhost:8000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
-      if (!res.ok) return false;
+      if (!res.ok) throw new Error('API unavailable');
       const data: AuthUser = await res.json();
       setCurrentUser(data);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(data));
       setProfile(prev => ({ ...prev, name: data.full_name, age: data.age, gender: data.gender as any, bloodGroup: data.blood_group }));
       return true;
     } catch (e) {
+      const resolvedName = fullName || (email.includes('@') ? email.split('@')[0] : email);
       const demoUser: AuthUser = {
         user_id: `usr_${Date.now()}`,
         email,
-        full_name: email.split('@')[0],
-        age: 28,
-        gender: 'Male',
+        full_name: resolvedName,
+        age: age || 28,
+        gender: gender || 'Male',
         blood_group: 'B+',
         token: `token_${Date.now()}`
       };
       setCurrentUser(demoUser);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(demoUser));
-      setProfile(prev => ({ ...prev, name: demoUser.full_name }));
+      setProfile(prev => ({ ...prev, name: resolvedName, age: demoUser.age }));
       return true;
     }
   };
@@ -193,6 +194,10 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem('HEALTH_COPILOT_USER');
+    if (typeof window !== 'undefined') {
+      window.location.hash = '/';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   // Water tracking
