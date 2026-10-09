@@ -105,3 +105,172 @@
   0% { top: 5%; }
   100% { top: 92%; }
 }
+
+
+/* ==========================================
+   ALTRIX LABS — MODERN CLINICAL THEME
+   Clean, professional, light UI
+========================================== */
+
+:root {
+  --health-mint: #E6F4F1;
+  --health-blue: #EFF6FF;
+  --health-lavender: #F1F5F9;
+  --health-cream: #F8FAFC;
+
+  --health-primary: #0F766E;
+  --health-primary-dark: #115E59;
+
+  --health-text: #16324F;
+  --health-muted: #64748B;
+  --health-border: #E2E8F0;
+  --health-card: #FFFFFF;
+
+  --clinical-background: #F5F7FA;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  color: var(--health-text);
+  background: var(--clinical-background);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Plain light background: no doodles or gradients */
+.healthcare-background {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  background: var(--clinical-background) !important;
+  background-image: none !important;
+}
+
+/* Disable the old medical pattern */
+.medical-doodle-background {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* Hide decorative floating shapes */
+.medical-orb {
+  display: none !important;
+}
+
+/* White cards with restrained borders and shadows */
+.pastel-card,
+.app-card {
+  background: #FFFFFF !important;
+  border: 1px solid var(--health-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(22, 50, 79, 0.04) !important;
+  backdrop-filter: none !important;
+  transition: box-shadow 180ms ease;
+}
+
+.pastel-card:hover,
+.app-card-hover:hover {
+  border-color: #CBD5E1 !important;
+  box-shadow: 0 5px 16px rgba(22, 50, 79, 0.07) !important;
+  transform: none;
+}
+
+/* Remove pastel gradients from existing utility classes */
+.pastel-mint,
+.pastel-blue,
+.pastel-lavender,
+.pastel-peach {
+  background: #FFFFFF !important;
+}
+
+/* Keep colored sections subtle and readable */
+.hero-gradient {
+  background: #16324F !important;
+}
+
+.hero-teal-gradient {
+  background: #0F766E !important;
+}
+
+/* Consistent input fields */
+.healthcare-background input,
+.healthcare-background select,
+.healthcare-background textarea {
+  border-radius: 10px;
+  border-color: var(--health-border);
+  background-color: #FFFFFF;
+  color: var(--health-text);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.healthcare-background input:focus,
+.healthcare-background select:focus,
+.healthcare-background textarea:focus {
+  outline: none;
+  border-color: var(--health-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.10);
+}
+
+/* Professional teal primary buttons */
+.health-primary-button {
+  border: none;
+  border-radius: 10px;
+  background: var(--health-primary) !important;
+  color: #FFFFFF !important;
+  font-weight: 600;
+  box-shadow: none;
+  transition: background-color 180ms ease;
+}
+
+.health-primary-button:hover {
+  background: var(--health-primary-dark) !important;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Voice AI animation colors */
+.concentric-wave::before,
+.concentric-wave::after {
+  border-color: rgba(15, 118, 110, 0.20);
+}
+
+.wave-bar {
+  background: #0F766E;
+}
+
+/* Keep scanning animation, but use the clinical accent */
+.scan-laser-line {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #0F766E,
+    #5EEAD4,
+    #0F766E,
+    transparent
+  );
+  box-shadow: 0 0 12px 2px rgba(15, 118, 110, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .pastel-card,
+  .app-card-hover,
+  .health-primary-button {
+    transition: none;
+  }
+
+  .concentric-wave::before,
+  .concentric-wave::after,
+  .wave-bar,
+  .scan-laser-line {
+    animation: none;
+  }
+}

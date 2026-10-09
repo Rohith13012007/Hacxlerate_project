@@ -1,15 +1,17 @@
 import React from 'react';
 import { useHealth } from '../context/HealthContext';
 import type { Language } from '../types';
-import { 
-  Globe, 
-  Bell, 
-  RotateCcw, 
-  QrCode, 
-  Mic, 
+import {
+  Globe,
+  Bell,
+  RotateCcw,
+  QrCode,
+  Mic,
   AlertTriangle,
   LogOut,
-  UserCheck
+  UserCheck,
+  HeartPulse,
+  Search,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -17,15 +19,15 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenQR }) => {
-  const { 
-    activeLanguage, 
-    setActiveLanguage, 
-    setIsVoiceModalOpen, 
+  const {
+    activeLanguage,
+    setActiveLanguage,
+    setIsVoiceModalOpen,
     setIsEmergencyModalOpen,
     resetDemoData,
     currentUser,
     setIsAuthModalOpen,
-    logout
+    logout,
   } = useHealth();
 
   const languages: { code: Language; label: string }[] = [
@@ -33,126 +35,152 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQR }) => {
     { code: 'te', label: 'తెలుగు (Telugu)' },
     { code: 'hi', label: 'हिन्दी (Hindi)' },
     { code: 'ta', label: 'தமிழ் (Tamil)' },
-    { code: 'kn', label: 'కన్నడ (Kannada)' },
+    { code: 'kn', label: 'ಕನ್ನಡ (Kannada)' },
   ];
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 lg:px-8 py-3 flex items-center justify-between shadow-xs">
-      {/* Brand & Search area matching Reference Design */}
-      <div className="flex items-center space-x-6 flex-1 max-w-xl">
-        <h2 className="font-black text-lg text-blue-600 tracking-tight flex items-center space-x-2 flex-shrink-0 cursor-pointer">
-          <span className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 font-bold text-sm">H</span>
-          <span className="text-slate-900 font-extrabold">Health<span className="text-blue-600">Copilot</span></span>
-        </h2>
+    <header className="sticky top-0 z-40 w-full border-b border-emerald-100/80 bg-white/85 px-4 py-3 shadow-sm shadow-emerald-900/[0.03] backdrop-blur-xl lg:px-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Brand */}
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-700 text-white shadow-md shadow-emerald-700/15">
+            <HeartPulse size={23} />
+          </div>
 
-        {/* Global Search Bar */}
-        <div className="hidden md:flex items-center w-full bg-slate-100/80 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
-          <span className="text-slate-400 mr-2">🔍</span>
+          <div>
+            <h1 className="text-base font-extrabold tracking-tight text-slate-800 sm:text-lg">
+              Health<span className="text-teal-700">Copilot</span>
+            </h1>
+            <p className="hidden text-[10px] font-medium tracking-wide text-slate-500 sm:block">
+              YOUR PERSONAL HEALTH COMPANION
+            </p>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="order-3 flex w-full items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2 transition-colors focus-within:border-emerald-300 focus-within:bg-white md:order-none md:mx-4 md:max-w-xs md:flex-1 lg:max-w-md">
+          <Search size={16} className="shrink-0 text-teal-700" />
           <input
             type="text"
-            placeholder="Search patients, records, symptoms, doctors..."
-            className="w-full bg-transparent text-xs text-slate-800 focus:outline-none placeholder-slate-400 font-medium"
+            placeholder="Search health information..."
+            aria-label="Search health information"
+            className="w-full min-w-0 bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-400"
           />
         </div>
-      </div>
 
-      {/* Center Controls */}
-      <div className="flex items-center space-x-2 sm:space-x-3">
-        {/* Language Selector */}
-        <div className="flex items-center bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-800">
-          <Globe className="w-3.5 h-3.5 text-blue-600 mr-2 flex-shrink-0" />
-          <select
-            value={activeLanguage}
-            onChange={(e) => setActiveLanguage(e.target.value as Language)}
-            className="bg-transparent text-slate-800 text-xs font-semibold focus:outline-none cursor-pointer pr-1"
-          >
-            {languages.map(lang => (
-              <option key={lang.code} value={lang.code} className="bg-white text-slate-800">
-                {lang.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Voice Assistant Button */}
-        <button
-          onClick={() => setIsVoiceModalOpen(true)}
-          className="flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all transform hover:scale-[1.02]"
-        >
-          <Mic className="w-3.5 h-3.5 animate-bounce" />
-          <span className="hidden md:inline">Voice AI</span>
-        </button>
-
-        {/* QR Card button */}
-        <button
-          onClick={onOpenQR}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 text-xs font-semibold transition-colors"
-          title="QR Passport"
-        >
-          <QrCode className="w-3.5 h-3.5 text-blue-600" />
-          <span className="hidden sm:inline">QR Passport</span>
-        </button>
-
-        {/* Emergency Alert Button */}
-        <button
-          onClick={() => setIsEmergencyModalOpen(true)}
-          className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition-colors"
-        >
-          <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
-          <span className="hidden lg:inline">Emergency</span>
-        </button>
-
-        {/* Reset Demo Data */}
-        <button
-          onClick={resetDemoData}
-          className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 border border-slate-200 transition-colors"
-          title="Reset Data"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Right User Profile & Auth */}
-      <div className="flex items-center space-x-3">
-        <button className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 relative">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-600" />
-        </button>
-
-        {currentUser ? (
-          <div className="flex items-center space-x-2 pl-2 border-l border-slate-200">
-            <div className="flex items-center space-x-2">
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop"
-                alt={currentUser.full_name}
-                className="w-8 h-8 rounded-full object-cover border-2 border-emerald-500 shadow-xs"
-              />
-              <div className="hidden sm:flex flex-col text-left">
-                <span className="text-xs font-bold text-slate-900 leading-none">{currentUser.full_name}</span>
-                <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Postgres Synced
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={logout}
-              className="ml-2 px-2.5 py-1 text-[11px] font-bold text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg transition-colors flex items-center gap-1"
-              title="Logout"
+        {/* Main controls */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Language */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-blue-100 bg-blue-50/70 px-2.5 py-2">
+            <Globe size={15} className="shrink-0 text-blue-700" />
+            <select
+              value={activeLanguage}
+              onChange={(event) =>
+                setActiveLanguage(event.target.value as Language)
+              }
+              aria-label="Select language"
+              className="max-w-[95px] cursor-pointer bg-transparent text-xs font-semibold text-slate-700 outline-none"
             >
-              <LogOut className="w-3 h-3" />
-              <span className="hidden md:inline">Logout</span>
-            </button>
+              {languages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
           </div>
-        ) : (
+
+          {/* Voice AI */}
           <button
-            onClick={() => setIsAuthModalOpen(true)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold shadow-sm shadow-blue-500/20 transition-all"
+            type="button"
+            onClick={() => setIsVoiceModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-700/15 transition-all hover:-translate-y-0.5 hover:shadow-md"
+            title="Open Voice AI"
           >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Login / Register</span>
+            <Mic size={15} />
+            <span className="hidden lg:inline">Voice AI</span>
           </button>
-        )}
+
+          {/* QR Passport */}
+          <button
+            type="button"
+            onClick={onOpenQR}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 transition-colors hover:bg-violet-100"
+            title="QR Passport"
+          >
+            <QrCode size={15} />
+            <span className="hidden sm:inline">QR Passport</span>
+          </button>
+
+          {/* Emergency */}
+          <button
+            type="button"
+            onClick={() => setIsEmergencyModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 transition-colors hover:bg-rose-100"
+            title="Emergency"
+          >
+            <AlertTriangle size={15} />
+            <span className="hidden lg:inline">Emergency</span>
+          </button>
+
+          {/* Reset Demo Data */}
+          <button
+            type="button"
+            onClick={resetDemoData}
+            className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+            title="Reset Demo Data"
+            aria-label="Reset demo data"
+          >
+            <RotateCcw size={15} />
+          </button>
+
+          {/* Notifications */}
+          <button
+            type="button"
+            className="relative rounded-xl border border-emerald-100 bg-emerald-50/70 p-2 text-teal-800 transition-colors hover:bg-emerald-100"
+            aria-label="Notifications"
+            title="Notifications"
+          >
+            <Bell size={17} />
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full border border-white bg-rose-400" />
+          </button>
+
+          {/* User and authentication */}
+          {currentUser ? (
+            <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50/60 py-1.5 pl-2 pr-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-200 to-teal-300 text-teal-900">
+                <UserCheck size={17} />
+              </div>
+
+              <div className="hidden max-w-[125px] sm:block">
+                <p className="truncate text-xs font-bold text-slate-800">
+                  {currentUser.full_name}
+                </p>
+                <p className="text-[10px] font-medium text-emerald-700">
+                  Signed in
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={logout}
+                className="ml-1 inline-flex items-center gap-1 rounded-lg border border-rose-100 bg-white px-2 py-1.5 text-[11px] font-bold text-rose-700 transition-colors hover:bg-rose-50"
+                title="Logout"
+              >
+                <LogOut size={13} />
+                <span className="hidden lg:inline">Logout</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-teal-700/15 transition-all hover:-translate-y-0.5 hover:shadow-md sm:px-4"
+            >
+              <UserCheck size={15} />
+              <span>Login / Register</span>
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );
