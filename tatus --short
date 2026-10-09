@@ -1,0 +1,176 @@
+[1mdiff --git a/backend/app/main.py b/backend/app/main.py[m
+[1mindex 6d02a5f..4ea9d2b 100644[m
+[1m--- a/backend/app/main.py[m
+[1m+++ b/backend/app/main.py[m
+[36m@@ -1,618 +1,25 @@[m
+[31m-import os[m
+[31m-import uuid[m
+[31m-import datetime[m
+[31m-import json[m
+[31m-from typing import Optional, List, Dict, Any[m
+[31m-from dotenv import load_dotenv[m
+[31m-from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks[m
+[31m-from fastapi.middleware.cors import CORSMiddleware[m
+[31m-from sqlalchemy.orm import Session[m
+[31m-[m
+[31m-load_dotenv()[m
+[31m-[m
+[31m-from app.models.schemas import ([m
+[31m-    RegisterRequest, LoginRequest, AuthResponse,[m
+[31m-    ChatRequest, ChatResponse,[m
+[31m-    HealthImageAnalysisRequest, HealthImageAnalysisResponse,[m
+[31m-    FoodAnalysisRequest, FoodAnalysisResponse,[m
+[31m-    DocumentUploadRequest, DocumentOCRResponse,[m
+[31m-    QRCreateRequest, QRCreateResponse, DoctorAccessResponse[m
+[31m-)[m
+[31m-from app.agents.orchestrator import HealthCopilotOrchestrator[m
+[31m-from app.agents.pre_consultation_agent import PreConsultationAgent[m
+[31m-from app.db.database import Base, engine, get_db, SessionLocal[m
+[31m-from app.db.models import ([m
+[31m-    User, PatientProfile, DoctorRecord, HospitalRecord, AppointmentRecord,[m
+[31m-    PatientConsultationBriefRecord, ConsultationRecord, TimelineEventRecord,[m
+[31m-    MedicalReportRecord, PrescriptionRecord, MedicineScheduleRecord,[m
+[31m-    FoodScanRecord, VisionScanRecord, DoctorAccessLogRecord[m
+[31m-)[m
+[31m-from app.repositories.patient_repository import PatientRepository[m
+[31m-from app.repositories.appointment_repository import AppointmentRepository[m
+[31m-from app.repositories.medical_record_repository import MedicalRecordRepository[m
+[31m-from app.services.patient_context_service import PatientContextService[m
+[31m-from app.auth.auth_handler import hash_password, verify_password, create_access_token, verify_access_token[m
+[31m-from app.services.fhir_adapter import FHIRAdapter[m
+[31m-[m
+[31m-# Initialize Database Tables[m
+[31m-try:[m
+[31m-    Base.metadata.create_all(bind=engine)[m
+[31m-    print("[DB Status] Database tables initialized successfully.")[m
+[31m-except Exception as e:[m
+[31m-    print(f"[DB Warning] Could not initialize database tables automatically: {e}")[m
+[31m-[m
+[31m-app = FastAPI([m
+[31m-    title="HealthCopilot API",[m
+[31m-    description="AI-Powered Personal Health Operating System with Repository Service Layer & PreConsultation Handoff Engine",[m
+[31m-    version="1.0.0"[m
+[31m-)[m
+[31m-[m
+[31m-app.add_middleware([m
+[31m-    CORSMiddleware,[m
+[31m-    allow_origins=["*"],[m
+[31m-    allow_credentials=True,[m
+[31m-    allow_methods=["*"],[m
+[31m-    allow_headers=["*"],[m
+[31m-)[m
+[31m-[m
+[31m-orchestrator = HealthCopilotOrchestrator()[m
+[31m-pre_consult_agent = PreConsultationAgent()[m
+[31m-[m
+[31m-QR_TOKENS_DB: Dict[str, Any] = {}[m
+[31m-AUDIT_LOGS_DB: List[Dict[str, Any]] = [[m
+[31m-    {[m
+[31m-        "id": "aud_001",[m
+[31m-        "actor": "system",[m
+[31m-        "action": "SYSTEM_STARTUP",[m
+[31m-        "resource": "HealthCopilot Service Engine",[m
+[31m-        "timestamp": datetime.datetime.now().isoformat(),[m
+[31m-        "status": "SUCCESS"[m
+[31m-    }[m
+[31m-][m
+[31m-[m
+[31m-def log_audit(actor: str, action: str, resource: str, status: str = "SUCCESS"):[m
+[31m-    AUDIT_LOGS_DB.insert(0, {[m
+[31m-        "id": f"aud_{uuid.uuid4().hex[:8]}",[m
+[31m-        "actor": actor,[m
+[31m-        "action": action,[m
+[31m-        "resource": resource,[m
+[31m-        "timestamp": datetime.datetime.now().isoformat(),[m
+[31m-        "status": status[m
+[31m-    })[m
+ [m
+ def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:[m
+     if not authorization:[m
+[31m-        return "usr_001"[m
+[31m-    token = authorization.replace("Bearer ", "").strip()[m
+[31m-    payload = verify_access_token(token)[m
+[31m-    if not payload:[m
+[31m-        return "usr_001"[m
+[31m-    return payload["user_id"][m
+[31m-[m
+[31m-# --- BACKGROUND WORKER FOR PRE-CONSULTATION BRIEF GENERATION ---[m
+[31m-[m
+[31m-def bg_generate_pre_consultation_brief(appointment_id: str, patient_id: str, doctor_id: str, doctor_specialty: str):[m
+[31m-    """Background worker task generating patient brief asynchronously without blocking HTTP response."""[m
+[31m-    db = SessionLocal()[m
+[31m-    try:[m
+[31m-        context_service = PatientContextService(db)[m
+[31m-        appt_repo = AppointmentRepository(db)[m
+[31m-        [m
+[31m-        # 1. Retrieve Permission-Filtered Relevant Patient Context[m
+[31m-        context = context_service.get_patient_context_for_doctor([m
+[31m-            patient_id=patient_id,[m
+[31m-            doctor_specialty=doctor_specialty,[m
+[31m-            appointment_id=appointment_id[m
+[32m+[m[32m        raise HTTPException([m
+[32m+[m[32m            status_code=401,[m
+[32m+[m[32m            detail="Authentication required"[m
+         )[m
+ [m
+[31m-        # 2. Run PreConsultationAgent[m
+[31m-        brief_data = pre_consult_agent.generate_patient_brief([m
+[31m-            patient_context=context,[m
+[31m-            appointment_data=context.get("appointment")[m
+[31m-        )[m
+[31m-[m
+[31m-        # 3. Save Patient Consultation Brief to DB[m
+[31m-        existing_brief = appt_repo.get_brief_by_appointment_id(appointment_id)[m
+[31m-        if not existing_brief:[m
+[31m-            brief_rec = PatientConsultationBriefRecord([m
+[31m-                id=brief_data["id"],[m
+[31m-                appointment_id=appointment_id,[m
+[31m-                patient_id=patient_id,[m
+[31m-                doctor_id=doctor_id,[m
+[31m-                patient_name=brief_data["patient_name"],[m
+[31m-                age=brief_data["age"],[m
+[31m-                blood_group=brief_data["blood_group"],[m
+[31m-                reason_for_visit=brief_data["reason_for_visit"],[m
+[31m-                symptom_summary=brief_data["symptom_summary"],[m
+[31m-                symptom_duration=brief_data["symptom_duration"],[m
+[31m-                symptom_severity=brief_data["symptom_severity"],[m
+[31m-                relevant_allergies=brief_data["relevant_allergies"],[m
+[31m-                relevant_conditions=brief_data["relevant_conditions"],[m
+[31m-                current_medications=brief_data["current_medications"],[m
+[31m-                ai_conversation_summary=brief_data["ai_conversation_summary"],[m
+[31m-                ai_recommended_specialty=brief_data["ai_recommended_specialty"],[m
+[31m-                source_records_json=json.dumps(brief_data["source_records"]),[m
+[31m-                version="v1.0",[m
+[31m-                status="READY"[m
+[31m-            )[m
+[31m-            appt_repo.save_brief(brief_rec)[m
+[31m-            log_audit("BG_WORKER", "PATIENT_BRIEF_GENERATED", f"Generated brief {brief_data['id']} for appt {appointment_id}")[m
+[31m-[m
+[31m-    except Exception as e:[m
+[31m-        print(f"[BG Worker Error] Failed generating patient brief for appt {appointment_id}: {e}")[m
+[31m-    finally:[m
+[31m-        db.close()[m
+[31m-[m
+[31m-# --- SYSTEM HEALTH ---[m
+[31m-[m
+[31m-@app.get("/")[m
+[31m-def read_root():[m
+[31m-    return {[m
+[31m-        "status": "healthy",[m
+[31m-        "service": "AI Health Copilot Service & Repository Engine",[m
+[31m-        "database": "Active (PostgreSQL / SQLite)",[m
+[31m-        "version": "1.0.0",[m
+[31m-        "timestamp": datetime.datetime.now().isoformat()[m
+[31m-    }[m
+[31m-[m
+[31m-@app.get("/health")[m
+[31m-@app.get("/health/live")[m
+[31m-@app.get("/health/ready")[m
+[31m-def health_check():[m
+[31m-    return {[m
+[31m-        "status": "UP",[m
+[31m-        "services": {[m
+[31m-            "database": "UP",[m
+[31m-            "ai_orchestrator": "UP",[m
+[31m-            "pre_consultation_agent": "UP",[m
+[31m-            "patient_context_service":

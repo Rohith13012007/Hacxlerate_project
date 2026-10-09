@@ -211,3 +211,15 @@ class DoctorAccessLogRecord(Base):
     resource_type = Column(String(50), nullable=False)
     action = Column(String(50), nullable=False)
     accessed_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class PatientConsentQRRecord(Base):
+    __tablename__ = "patient_qr_tokens"
+
+    id = Column(String(50), primary_key=True, index=True)
+    token = Column(String(100), unique=True, index=True, nullable=False)
+    user_id = Column(String(50), ForeignKey("users.id"), nullable=False, index=True)
+    duration_hours = Column(Integer, default=24)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    is_revoked = Column(Boolean, default=False)
+    shared_fields_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

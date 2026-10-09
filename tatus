@@ -1,0 +1,81 @@
+[1mdiff --git a/backend/app/models/schemas.py b/backend/app/models/schemas.py[m
+[1mindex 7c92d9f..952494d 100644[m
+[1m--- a/backend/app/models/schemas.py[m
+[1m+++ b/backend/app/models/schemas.py[m
+[36m@@ -1,4 +1,4 @@[m
+[31m-from pydantic import BaseModel, Field[m
+[32m+[m[32mfrom pydantic import BaseModel, Field, field_validator[m
+ from typing import List, Optional, Dict, Any[m
+ [m
+ class RegisterRequest(BaseModel):[m
+[36m@@ -80,15 +80,68 @@[m [mclass DocumentOCRResponse(BaseModel):[m
+     disclaimer: str[m
+ [m
+ class QRCreateRequest(BaseModel):[m
+[31m-    user_id: str[m
+[32m+[m[32m    user_id: Optional[str] = None[m
+     duration_hours: int = 24[m
+[31m-    shared_fields: Dict[str, bool][m
+[32m+[m[32m    shared_fields: Dict[str, bool] = Field(default_factory=dict)[m
+ [m
+ class QRCreateResponse(BaseModel):[m
+     token: str[m
+     qr_url: str[m
+     expires_at: str[m
+ [m
+[32m+[m[32mclass PatientProfileResponse(BaseModel):[m
+[32m+[m[32m    user_id: str[m
+[32m+[m[32m    name: str[m
+[32m+[m[32m    email: Optional[str] = None[m
+[32m+[m[32m    age: int[m
+[32m+[m[32m    gender: str[m
+[32m+[m[32m    blood_group: str[m
+[32m+[m[32m    height_cm: Optional[float] = 175.0[m
+[32m+[m[32m    weight_kg: Optional[float] = 70.0[m
+[32m+[m[32m    allergies: List[str] = [][m
+[32m+[m[32m    existing_conditions: List[str] = [][m
+[32m+[m[32m    current_medicines: List[str] = [][m
+[32m+[m[32m    emergency_contact: Dict[str, str] = Field(default_factory=dict)[m
+[32m+[m[32m    diet_preference: Optional[str] = "Vegetarian"[m
+[32m+[m[32m    language_preference: Optional[str] = "en"[m
+[32m+[m
+[32m+[m[32mclass PatientProfileUpdateRequest(BaseModel):[m
+[32m+[m[32m    name: Optional[str] = Field(None, max_length=100)[m
+[32m+[m[32m    age: Optional[int] = Field(None, ge=0, le=130)[m
+[32m+[m[32m    gender: Optional[str] = None[m
+[32m+[m[32m    blood_group: Optional[str] = None[m
+[32m+[m[32m    height_cm: Optional[float] = Field(None, ge=30.0, le=300.0)[m
+[32m+[m[32m    weight_kg: Optional[float] = Field(None, ge=1.0, le=500.0)[m
+[32m+[m[32m    allergies: Optional[List[str]] = None[m
+[32m+[m[32m    existing_conditions: Optional[List[str]] = None[m
+[32m+[m[32m    current_medicines: Optional[List[str]] = None[m
+[32m+[m[32m    emergency_contact_name: Optional[str] = Field(None, max_length=100)[m
+[32m+[m[32m    emergency_contact_phone: Optional[str] = Field(None, max_length=50)[m
+[32m+[m[32m    diet_preference: Optional[str] = Field(None, max_length=50)[m
+[32m+[m[32m    language_preference: Optional[str] = Field(None, max_length=10)[m
+[32m+[m
+[32m+[m[32m    @field_validator("gender")[m
+[32m+[m[32m    @classmethod[m
+[32m+[m[32m    def validate_gender(cls, v: Optional[str]) -> Optional[str]:[m
+[32m+[m[32m        if v is None:[m
+[32m+[m[32m            return None[m
+[32m+[m[32m        allowed = {"male": "Male", "female": "Female", "other": "Other", "prefer not to say": "Prefer not to say"}[m
+[32m+[m[32m        cleaned = v.strip().lower()[m
+[32m+[m[32m        if cleaned not in allowed:[m
+[32m+[m[32m            raise ValueError("Gender must be one of: 'Male', 'Female', 'Other', 'Prefer not to say'")[m
+[32m+[m[32m        return allowed[cleaned][m
+[32m+[m
+[32m+[m[32m    @field_validator("blood_group")[m
+[32m+[m[32m    @classmethod[m
+[32m+[m[32m    def validate_blood_group(cls, v: Optional[str]) -> Optional[str]:[m
+[32m+[m[32m        if v is None:[m
+[32m+[m[32m            return None[m
+[32m+[m[32m        cleaned = v.strip().upper()[m
+[32m+[m[32m        valid_groups = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "UNKNOWN"}[m
+[32m+[m[32m        if cleaned not in valid_groups:[m
+[32m+[m[32m            raise ValueError("Blood group must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-, Unknown")[m
+[32m+[m[32m        return cleaned if cleaned != "UNKNOWN" else "Unknown"[m
+[32m+[m
+ class DoctorAccessResponse(BaseModel):[m
+     patient_name: str[m
+     age: int[m
