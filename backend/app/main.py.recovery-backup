@@ -1,0 +1,25 @@
+
+def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
+
+    scheme, _, token = authorization.partition(" ")
+
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header"
+        )
+
+    payload = verify_access_token(token.strip())
+
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired session token"
+        )
+
+    return payload["user_id"]

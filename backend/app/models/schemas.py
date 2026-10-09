@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 
 class RegisterRequest(BaseModel):
@@ -80,14 +80,67 @@ class DocumentOCRResponse(BaseModel):
     disclaimer: str
 
 class QRCreateRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     duration_hours: int = 24
-    shared_fields: Dict[str, bool]
+    shared_fields: Dict[str, bool] = Field(default_factory=dict)
 
 class QRCreateResponse(BaseModel):
     token: str
     qr_url: str
     expires_at: str
+
+class PatientProfileResponse(BaseModel):
+    user_id: str
+    name: str
+    email: Optional[str] = None
+    age: int
+    gender: str
+    blood_group: str
+    height_cm: Optional[float] = 175.0
+    weight_kg: Optional[float] = 70.0
+    allergies: List[str] = []
+    existing_conditions: List[str] = []
+    current_medicines: List[str] = []
+    emergency_contact: Dict[str, str] = Field(default_factory=dict)
+    diet_preference: Optional[str] = "Vegetarian"
+    language_preference: Optional[str] = "en"
+
+class PatientProfileUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=100)
+    age: Optional[int] = Field(None, ge=0, le=130)
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    height_cm: Optional[float] = Field(None, ge=30.0, le=300.0)
+    weight_kg: Optional[float] = Field(None, ge=1.0, le=500.0)
+    allergies: Optional[List[str]] = None
+    existing_conditions: Optional[List[str]] = None
+    current_medicines: Optional[List[str]] = None
+    emergency_contact_name: Optional[str] = Field(None, max_length=100)
+    emergency_contact_phone: Optional[str] = Field(None, max_length=50)
+    diet_preference: Optional[str] = Field(None, max_length=50)
+    language_preference: Optional[str] = Field(None, max_length=10)
+
+    @field_validator("gender")
+    @classmethod
+    def validate_gender(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        allowed = {"male": "Male", "female": "Female", "other": "Other", "prefer not to say": "Prefer not to say"}
+        cleaned = v.strip().lower()
+        if cleaned not in allowed:
+            raise ValueError("Gender must be one of: 'Male', 'Female', 'Other', 'Prefer not to say'")
+        return allowed[cleaned]
+
+    @field_validator("blood_group")
+    @classmethod
+    def validate_blood_group(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().upper()
+        valid_groups = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "UNKNOWN"}
+        if cleaned not in valid_groups:
+            raise ValueError("Blood group must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-, Unknown")
+        return cleaned if cleaned != "UNKNOWN" else "Unknown"
 
 class DoctorAccessResponse(BaseModel):
     patient_name: str
