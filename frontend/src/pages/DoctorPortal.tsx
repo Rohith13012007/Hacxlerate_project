@@ -8,11 +8,12 @@ import {
   Key,
   Download,
   Search,
-  ArrowUpRight
+  ArrowUpRight,
+  LogOut
 } from 'lucide-react';
 
 export const DoctorPortal: React.FC = () => {
-  const { profile, appointments, addPrescription } = useHealth();
+  const { profile, appointments, addPrescription, logout, currentUser } = useHealth();
   const [tokenInput, setTokenInput] = useState('demo_token_8899');
   const [authorized, setAuthorized] = useState(true);
   const [selectedPatientTab, setSelectedPatientTab] = useState<'Overview' | 'Reports' | 'Medications' | 'Vitals' | 'History'>('Overview');
@@ -83,7 +84,7 @@ export const DoctorPortal: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center space-x-2">
-            <span>Good Morning, Dr. Priya Mehta!</span>
+            <span>Good Morning, {currentUser?.full_name ? (currentUser.full_name.startsWith('Dr.') ? currentUser.full_name : `Dr. ${currentUser.full_name}`) : 'Dr. Priya Mehta'}!</span>
             <span>👋</span>
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -105,9 +106,17 @@ export const DoctorPortal: React.FC = () => {
           </div>
           <button
             onClick={() => setAuthorized(true)}
-            className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm shadow-blue-600/20"
+            className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm shadow-blue-600/20 cursor-pointer"
           >
             Authenticate Token
+          </button>
+          <button
+            onClick={logout}
+            className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Log out and return to Home"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Log Out</span>
           </button>
         </div>
       </div>

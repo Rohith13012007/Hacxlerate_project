@@ -10,9 +10,11 @@ import {
   MapPin, 
   QrCode, 
   Settings,
-  HeartPulse
+  HeartPulse,
+  LogOut
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useHealth } from '../context/HealthContext';
 
 interface SidebarItem {
   path: string;
@@ -28,8 +30,9 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => {
+  const { logout } = useHealth();
   const menuItems: SidebarItem[] = [
-    { path: '/', label: 'Dashboard', icon: Home },
+    { path: '/dashboard', label: 'Dashboard', icon: Home },
     { path: '/assistant', label: 'AI Assistant', icon: Bot, badge: 'AI' },
     { path: '/reports', label: 'Health Records', icon: FileText },
     { path: '/appointments', label: 'Appointments', icon: Calendar },
@@ -46,7 +49,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
     <aside className="w-64 bg-white border border-slate-200/80 rounded-2xl flex-shrink-0 hidden md:flex flex-col justify-between p-4 shadow-sm min-h-[calc(100vh-80px)]">
       <div>
         {/* Brand Header matching Reference Image */}
-        <div className="flex items-center space-x-3 px-2 py-3 mb-6">
+        <div 
+          onClick={() => onNavigate('/')} 
+          className="flex items-center space-x-3 px-2 py-3 mb-6 cursor-pointer hover:opacity-90 transition-opacity"
+          title="Return to Home"
+        >
           <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-600/20">
             <HeartPulse className="w-6 h-6" />
           </div>
@@ -88,10 +95,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
         </div>
       </div>
 
-      {/* Footer Card */}
-      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
-        <p className="text-xs font-bold text-slate-800">Smarter Care</p>
-        <p className="text-[10px] text-slate-500">for a Healthier You</p>
+      {/* Footer Card & Log Out */}
+      <div className="space-y-2 pt-2 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={() => {
+            logout();
+            onNavigate('/');
+          }}
+          className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-xl border border-rose-200/80 bg-rose-50/60 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
+          title="Log out and return to Home"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Log Out to Home</span>
+        </button>
+
+        <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-center">
+          <p className="text-xs font-bold text-slate-800">Smarter Care</p>
+          <p className="text-[10px] text-slate-500">for a Healthier You</p>
+        </div>
       </div>
     </aside>
   );
