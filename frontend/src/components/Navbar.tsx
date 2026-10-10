@@ -24,9 +24,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQR, onNavigate }) => {
     setIsEmergencyModalOpen,
     resetDemoData,
     currentUser,
+    profile,
     setIsAuthModalOpen,
     logout
   } = useHealth();
+
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 lg:px-8 py-3 flex items-center justify-between shadow-xs">
@@ -118,10 +120,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQR, onNavigate }) => {
           <div className="flex items-center space-x-2 pl-2 border-l border-slate-200">
             <div className="flex items-center space-x-2">
               <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop"
+                src={profile?.avatarUrl || currentUser?.avatarUrl || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23e2e8f0'/><circle cx='50' cy='40' r='20' fill='%2394a3b8'/><path d='M 18 88 C 18 68, 82 68, 82 88 Z' fill='%2394a3b8'/></svg>"}
                 alt={currentUser.full_name}
-                className="w-8 h-8 rounded-full object-cover border-2 border-emerald-500 shadow-xs"
+                className="w-8 h-8 rounded-full object-cover border-2 border-emerald-500 shadow-xs bg-slate-100"
               />
+
               <div className="hidden sm:flex flex-col text-left">
                 <span className="text-xs font-bold text-slate-900 leading-none">{currentUser.full_name}</span>
                 <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
