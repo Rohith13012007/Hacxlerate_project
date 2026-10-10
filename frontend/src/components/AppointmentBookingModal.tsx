@@ -10,23 +10,22 @@ import {
   User, 
   Video, 
   Building, 
-  Sparkles,
-  ArrowRight
+  Sparkles
 } from 'lucide-react';
 
 interface AppointmentBookingModalProps {
   doctor: NearbyDoctor | null;
   isOpen: boolean;
   onClose: () => void;
-  onNavigateDoctorPortal: () => void;
+  onNavigateDoctorPortal?: () => void;
 }
 
 export const AppointmentBookingModal: React.FC<AppointmentBookingModalProps> = ({
   doctor,
   isOpen,
-  onClose,
-  onNavigateDoctorPortal
+  onClose
 }) => {
+
   const { profile, addAppointment, conversations } = useHealth();
 
   const [date, setDate] = useState<string>(() => {
@@ -414,29 +413,19 @@ export const AppointmentBookingModal: React.FC<AppointmentBookingModalProps> = (
             {/* Actions */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <span className="text-xs text-slate-500 font-medium">
-                The doctor can access this document upon authentication in the Doctor Access Portal.
+                The doctor will access this document upon authentication in the Doctor Portal.
               </span>
 
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <button
                   onClick={handleReset}
-                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs shadow-md shadow-teal-600/20 transition-all cursor-pointer"
                 >
                   Done
                 </button>
-
-                <button
-                  onClick={() => {
-                    handleReset();
-                    onNavigateDoctorPortal();
-                  }}
-                  className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs shadow-md shadow-blue-600/20 flex items-center justify-center space-x-2"
-                >
-                  <span>Open Doctor Portal View</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
               </div>
             </div>
+
           </div>
         )}
       </div>
