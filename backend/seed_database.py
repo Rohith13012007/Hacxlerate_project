@@ -7,6 +7,8 @@ so AI Agents can retrieve authorized client data and perform actions.
 import sys
 import datetime
 import json
+from dotenv import load_dotenv
+load_dotenv()  # Load .env before database module reads DATABASE_URL
 from app.db.database import engine, Base, SessionLocal
 from app.db.models import (
     User, PatientProfile, DoctorRecord, HospitalRecord, AppointmentRecord,
@@ -17,7 +19,7 @@ from app.auth.auth_handler import hash_password
 
 def seed_db():
     print("--- HealthCopilot Database Initializer & Seeder ---")
-    print(f"Connecting to Database Target: {engine.url}")
+    print(f"Connecting to Database Target: {engine.dialect.name} @ {engine.url.host}")
 
     # 1. Create All Tables
     Base.metadata.create_all(bind=engine)

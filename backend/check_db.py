@@ -7,6 +7,10 @@ Appointment Creation, and AI Patient Brief Doctor Handoff.
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
+from dotenv import load_dotenv
+load_dotenv()  # must run before database module imports
+
+from sqlalchemy import text, inspect as sa_inspect
 from app.db.database import engine, Base, SessionLocal
 from app.db.models import User, PatientProfile, AppointmentRecord, PatientConsultationBriefRecord
 from app.repositories.patient_repository import PatientRepository
@@ -14,7 +18,6 @@ from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.medical_record_repository import MedicalRecordRepository
 from app.services.patient_context_service import PatientContextService
 from app.agents.pre_consultation_agent import PreConsultationAgent
-from sqlalchemy import text
 
 print("==================================================")
 print("  HEALTHCOPILOT DATABASE & HANDOFF SYSTEM CHECK  ")
@@ -22,7 +25,7 @@ print("==================================================")
 
 # 1. Test Database Engine & Connection
 print("\n[1/6] Testing Database Engine Connection...")
-print(f"Target Database URL: {engine.url}")
+print(f"Target: {engine.dialect.name} @ {engine.url.host}")
 try:
     with engine.connect() as conn:
         res = conn.execute(text("SELECT 1")).scalar()
@@ -35,8 +38,9 @@ except Exception as e:
 print("\n[2/6] Verifying Database Tables...")
 Base.metadata.create_all(bind=engine)
 with engine.connect() as conn:
-    tables = [row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]
-    print(f"✓ Active Tables ({len(tables)}): {', '.join(tables)}")
+    inspector = sa_inspect(engine)
+    tables = inspector.get_table_names()
+    print(f"\u2713 Active Tables ({len(tables)}): {', '.join(tables)}")
 
 # 3. Test Repositories
 print("\n[3/6] Testing Repository Layer...")

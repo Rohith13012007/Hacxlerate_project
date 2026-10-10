@@ -1,4 +1,4 @@
-﻿import os
+import os
 import uuid
 import datetime
 import json
@@ -20,7 +20,7 @@ from app.models.schemas import (
 )
 from app.agents.orchestrator import HealthCopilotOrchestrator
 from app.agents.pre_consultation_agent import PreConsultationAgent
-from app.db.database import Base, engine, get_db, SessionLocal
+from app.db.database import Base, engine, get_db, SessionLocal, db_dialect
 
 from app.db.models import (
     User, PatientProfile, DoctorRecord, HospitalRecord, AppointmentRecord,
@@ -36,6 +36,7 @@ from app.repositories.medical_record_repository import MedicalRecordRepository
 from app.services.patient_context_service import PatientContextService
 from app.auth.auth_handler import hash_password, verify_password, create_access_token, verify_access_token
 from app.services.fhir_adapter import FHIRAdapter
+from sqlalchemy import text as sa_text
 
 # Initialize Database Tables
 try:
@@ -180,10 +181,20 @@ def read_root():
 @app.get("/health/live")
 @app.get("/health/ready")
 def health_check():
+    # Actually probe the database — do not claim UP without testing
+    db_status = "DOWN"
+    try:
+        with engine.connect() as _c:
+            _c.execute(sa_text("SELECT 1"))
+        db_status = "UP"
+    except Exception:
+        db_status = "DOWN"
+    overall = "UP" if db_status == "UP" else "DEGRADED"
     return {
-        "status": "UP",
+        "status": overall,
         "services": {
-            "database": "UP",
+            "database": db_status,
+            "database_dialect": db_dialect,
             "ai_orchestrator": "UP",
             "pre_consultation_agent": "UP",
             "patient_context_service": "UP",
@@ -262,10 +273,10 @@ def login_user(req: LoginRequest, db: Session = Depends(get_db)):
 # --- COPILOT AI ASSISTANT ---
 
 @app.post("/api/assistant/chat", response_model=ChatResponse)
-def chat_endpoint(req: ChatRequest):
+def chat_endpoint(req: ChatRequest,user_id: str = Depends(get_current_user_id)):
     res = orchestrator.process_message(req.message, req.language or "en")
     conv_id = req.conversation_id or f"conv_{uuid.uuid4().hex[:8]}"
-    log_audit(req.user_id or "usr_001", "AI_COPILOT_QUERY", f"Session {conv_id}")
+    log_audit(req.user_id , "AI_COPILOT_QUERY", f"Session {conv_id}")
     return ChatResponse(
         conversation_id=conv_id,
         reply_text=res["reply"],
@@ -398,7 +409,7 @@ def create_appointment(
     }
 
 @app.get("/api/doctor/appointments")
-def get_doctor_appointments(doctor_id: Optional[str] = "doc_001", db: Session = Depends(get_db)):
+def get_doctor_appointments(doctor_id: Optional[str] = "doc_001", _uid: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     appt_repo = AppointmentRepository(db)
     appts = appt_repo.get_by_doctor_id(doctor_id)
     results = []
@@ -471,7 +482,7 @@ def get_patient_brief_for_doctor(appointment_id: str, doctor_id: Optional[str] =
     }
 
 @app.post("/api/doctor/appointments/{appointment_id}/consultation")
-def save_doctor_consultation(appointment_id: str, req: Dict[str, Any], db: Session = Depends(get_db)):
+def save_doctor_consultation(appointment_id: str, req: Dict[str, Any], _uid: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     appt_repo = AppointmentRepository(db)
     medical_repo = MedicalRecordRepository(db)
 
@@ -558,81 +569,354 @@ def get_patient_timeline(user_id: str = Depends(get_current_user_id), db: Sessio
         }
         for e in events
     ]
-    if len(results) == 0:
-        results = [
-            {"id": "evt_1", "date": "2026-10-07", "time": "09:30 AM", "type": "Symptom Reported", "title": "Consulted AI Copilot for skin itching", "description": "AI recommended Dermatologist consultation.", "doctorOrSource": "AI Copilot Engine"},
-            {"id": "evt_2", "date": "2026-10-01", "time": "11:15 AM", "type": "Report Uploaded", "title": "Annual Blood Panel Uploaded", "description": "Extracted 3 lab parameters. Vitamin D3 deficient.", "doctorOrSource": "Dr. Ramesh Kumar"}
-        ]
     return results
+
+# --- PATIENT PROFILE ENDPOINTS ---
+
+@app.get("/api/patient/profile")
+def get_patient_profile(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    patient_repo = PatientRepository(db)
+    user = patient_repo.get_by_id(user_id)
+    profile = patient_repo.get_profile_by_user_id(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    return {
+        "user_id": user_id,
+        "name": profile.name,
+        "email": user.email if user else None,
+        "age": profile.age,
+        "gender": profile.gender,
+        "blood_group": profile.blood_group,
+        "height_cm": profile.height_cm,
+        "weight_kg": profile.weight_kg,
+        "allergies": [a.strip() for a in (profile.allergies or "").split(",") if a.strip()],
+        "existing_conditions": [c.strip() for c in (profile.existing_conditions or "").split(",") if c.strip()],
+        "current_medicines": [m.strip() for m in (profile.current_medicines or "").split(",") if m.strip()],
+        "emergency_contact": {
+            "name": profile.emergency_contact_name or "",
+            "phone": profile.emergency_contact_phone or ""
+        },
+        "diet_preference": profile.diet_preference,
+        "language_preference": profile.language_preference
+    }
+
+from app.models.schemas import PatientProfileUpdateRequest
+
+@app.put("/api/patient/profile")
+def update_patient_profile(
+    req: PatientProfileUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    patient_repo = PatientRepository(db)
+    update_data: Dict[str, Any] = {}
+    if req.name is not None:
+        update_data["name"] = req.name
+    if req.age is not None:
+        update_data["age"] = req.age
+    if req.gender is not None:
+        update_data["gender"] = req.gender
+    if req.blood_group is not None:
+        update_data["blood_group"] = req.blood_group
+    if req.height_cm is not None:
+        update_data["height_cm"] = req.height_cm
+    if req.weight_kg is not None:
+        update_data["weight_kg"] = req.weight_kg
+    if req.allergies is not None:
+        update_data["allergies"] = ", ".join(req.allergies)
+    if req.existing_conditions is not None:
+        update_data["existing_conditions"] = ", ".join(req.existing_conditions)
+    if req.current_medicines is not None:
+        update_data["current_medicines"] = ", ".join(req.current_medicines)
+    if req.emergency_contact_name is not None:
+        update_data["emergency_contact_name"] = req.emergency_contact_name
+    if req.emergency_contact_phone is not None:
+        update_data["emergency_contact_phone"] = req.emergency_contact_phone
+    if req.diet_preference is not None:
+        update_data["diet_preference"] = req.diet_preference
+    if req.language_preference is not None:
+        update_data["language_preference"] = req.language_preference
+
+    profile = patient_repo.update_patient_profile(user_id, update_data)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    log_audit(user_id, "PROFILE_UPDATED", "Patient Profile")
+    return {
+        "user_id": user_id,
+        "name": profile.name,
+        "age": profile.age,
+        "gender": profile.gender,
+        "blood_group": profile.blood_group,
+        "height_cm": profile.height_cm,
+        "weight_kg": profile.weight_kg,
+        "allergies": [a.strip() for a in (profile.allergies or "").split(",") if a.strip()],
+        "existing_conditions": [c.strip() for c in (profile.existing_conditions or "").split(",") if c.strip()],
+        "current_medicines": [m.strip() for m in (profile.current_medicines or "").split(",") if m.strip()],
+        "emergency_contact": {
+            "name": profile.emergency_contact_name or "",
+            "phone": profile.emergency_contact_phone or ""
+        },
+        "diet_preference": profile.diet_preference,
+        "language_preference": profile.language_preference
+    }
+
+# --- PATIENT APPOINTMENTS ---
+
+@app.get("/api/appointments")
+def get_patient_appointments(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    appt_repo = AppointmentRepository(db)
+    appts = appt_repo.get_by_patient_id(user_id)
+    return [
+        {
+            "id": a.id,
+            "doctorName": a.doctor_name,
+            "specialization": a.specialization,
+            "hospitalName": a.hospital_name,
+            "date": a.appointment_date,
+            "time": a.appointment_time,
+            "consultationType": a.consultation_type,
+            "diseaseCategory": a.disease_category,
+            "status": a.status
+        }
+        for a in appts
+    ]
+
+# --- DOCTOR & HOSPITAL DIRECTORIES ---
+
+@app.get("/api/doctors")
+def list_doctors(
+    specialization: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(DoctorRecord)
+    if specialization:
+        query = query.filter(DoctorRecord.specialization.ilike(f"%{specialization}%"))
+    if search:
+        query = query.filter(
+            DoctorRecord.name.ilike(f"%{search}%") |
+            DoctorRecord.specialization.ilike(f"%{search}%") |
+            DoctorRecord.hospital_name.ilike(f"%{search}%")
+        )
+    doctors = query.all()
+    return [
+        {
+            "id": d.id,
+            "name": d.name,
+            "specialization": d.specialization,
+            "qualification": d.qualification,
+            "experience_years": d.experience_years,
+            "hospital_name": d.hospital_name,
+            "address": d.address,
+            "phone": d.phone,
+            "rating": d.rating,
+            "distance_km": d.distance_km,
+            "consultation_fee": d.consultation_fee
+        }
+        for d in doctors
+    ]
+
+@app.get("/api/hospitals")
+def list_hospitals(
+    emergency_only: bool = False,
+    db: Session = Depends(get_db)
+):
+    query = db.query(HospitalRecord)
+    if emergency_only:
+        query = query.filter(HospitalRecord.emergency_available == True)
+    hospitals = query.all()
+    return [
+        {
+            "id": h.id,
+            "name": h.name,
+            "address": h.address,
+            "city": h.city,
+            "phone": h.phone,
+            "emergency_available": h.emergency_available
+        }
+        for h in hospitals
+    ]
+
+# --- QR TOKEN MANAGEMENT ---
+
+@app.post("/api/qr/generate", response_model=QRCreateResponse)
+def generate_qr_token(
+    req: QRCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    # Security: reject attempts to generate a token on behalf of another user
+    if req.user_id and req.user_id != user_id:
+        log_audit(user_id, "QR_GENERATE_SPOOF_ATTEMPT", f"Tried to generate token for {req.user_id}", "FAILED_FORBIDDEN")
+        raise HTTPException(status_code=403, detail="Cannot generate a QR token for another patient")
+
+    token_value = f"qr_{uuid.uuid4().hex}"
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=req.duration_hours)
+
+    qr_record = PatientConsentQRRecord(
+        id=f"qrec_{uuid.uuid4().hex[:10]}",
+        token=token_value,
+        user_id=user_id,
+        duration_hours=req.duration_hours,
+        expires_at=expires_at,
+        is_revoked=False,
+        shared_fields_json=json.dumps(req.shared_fields)
+    )
+    db.add(qr_record)
+    db.commit()
+    db.refresh(qr_record)
+
+    # Keep in-memory dict in sync for fast lookups
+    QR_TOKENS_DB[token_value] = {
+        "user_id": user_id,
+        "expires_at": expires_at,
+        "is_revoked": False,
+        "shared_fields": req.shared_fields
+    }
+
+    log_audit(user_id, "QR_TOKEN_GENERATED", f"Token {token_value} expires {expires_at.isoformat()}")
+    return QRCreateResponse(
+        token=token_value,
+        qr_url=f"/api/qr/access/{token_value}",
+        expires_at=expires_at.isoformat()
+    )
+
+@app.post("/api/qr/revoke/{token}")
+def revoke_qr_token(
+    token: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    qr_record = db.query(PatientConsentQRRecord).filter(PatientConsentQRRecord.token == token).first()
+    if not qr_record:
+        raise HTTPException(status_code=404, detail="QR token not found")
+    if qr_record.user_id != user_id:
+        log_audit(user_id, "QR_REVOKE_UNAUTHORIZED", f"Token {token} owned by another patient", "FAILED_FORBIDDEN")
+        raise HTTPException(status_code=403, detail="You can only revoke your own QR tokens")
+    qr_record.is_revoked = True
+    db.commit()
+    # Sync in-memory dict
+    if token in QR_TOKENS_DB:
+        QR_TOKENS_DB[token]["is_revoked"] = True
+    log_audit(user_id, "QR_TOKEN_REVOKED", f"Token {token} revoked by patient")
+    return {"success": True, "message": "QR access token has been revoked"}
 
 # --- DOCTOR ACCESS VIA QR TOKEN ---
 
 @app.get("/api/qr/access/{token}", response_model=DoctorAccessResponse)
-def doctor_access(token: str):
-    record = QR_TOKENS_DB.get(token)
-    if not record:
-        if token.startswith("demo") or token.startswith("qr_"):
-            pass
-        else:
-            log_audit("DOCTOR_PORTAL", "QR_ACCESS_DENIED", f"Token {token}", "FAILED_EXPIRED")
-            raise HTTPException(status_code=404, detail="Invalid or expired QR Access Token")
-    
-    if record and record.get("is_revoked"):
+def doctor_access(token: str, db: Session = Depends(get_db)):
+    # Look up token in the database (authoritative source)
+    qr_record = db.query(PatientConsentQRRecord).filter(PatientConsentQRRecord.token == token).first()
+    if not qr_record:
+        log_audit("DOCTOR_PORTAL", "QR_ACCESS_DENIED", f"Token {token}", "FAILED_NOT_FOUND")
+        raise HTTPException(status_code=404, detail="Invalid or expired QR Access Token")
+    if qr_record.is_revoked:
         log_audit("DOCTOR_PORTAL", "QR_ACCESS_DENIED", f"Token {token}", "FAILED_REVOKED")
         raise HTTPException(status_code=403, detail="QR access token has been revoked by the patient")
+    if datetime.datetime.utcnow() > qr_record.expires_at:
+        log_audit("DOCTOR_PORTAL", "QR_ACCESS_DENIED", f"Token {token}", "FAILED_EXPIRED")
+        raise HTTPException(status_code=410, detail="QR access token has expired")
 
-    log_audit("DOCTOR_PORTAL", "QR_ACCESS_SUCCESS", f"Authorized Access via token {token}")
+    shared_fields = json.loads(qr_record.shared_fields_json or "{}")
+    patient_id = qr_record.user_id
+
+    patient_repo = PatientRepository(db)
+    medical_repo = MedicalRecordRepository(db)
+    user = patient_repo.get_by_id(patient_id)
+    profile = patient_repo.get_profile_by_user_id(patient_id)
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    # Apply consent filtering — only return fields the patient consented to share
+    allergies = (
+    [a.strip() for a in (profile.allergies or "").split(",") if a.strip()]
+    if shared_fields.get("allergies", False)
+    else []
+)
+
+    conditions = (
+    [c.strip() for c in (profile.existing_conditions or "").split(",") if c.strip()]
+    if shared_fields.get("conditions", False)
+    else []
+)
+    medicines = [m.strip() for m in (profile.current_medicines or "").split(",") if m.strip()] if shared_fields.get("medicines", False) else []
+    recent_reports = []
+    if shared_fields.get("reports", False):
+        reports = medical_repo.get_reports_by_patient(patient_id)
+        recent_reports = [{"title": r.title, "date": r.date, "aiSummary": r.ai_summary or ""} for r in reports[:5]]
+
+    prescriptions = []
+    if shared_fields.get("prescriptions", False):
+        rxs = medical_repo.get_prescriptions_by_patient(patient_id)
+        prescriptions = [{"doctor": r.doctor_name, "date": r.date, "items": json.loads(r.items_json or "[]")} for r in rxs[:5]]
+
+    timeline = []
+    if shared_fields.get("timeline", False):
+        events = medical_repo.get_timeline_by_patient(patient_id)
+        timeline = [{"date": e.date, "event": e.title} for e in events[:10]]
+
+    log_audit("DOCTOR_PORTAL", "QR_ACCESS_SUCCESS", f"Authorized Access via token {token} for patient {patient_id}")
 
     return DoctorAccessResponse(
-        patient_name="Akhil Sharma",
-        age=28,
-        blood_group="B+",
-        allergies=["Penicillin", "Peanut"],
-        conditions=["Mild Eczema", "Seasonal Asthma"],
-        medicines=["Cetirizine 10mg", "Vitamin D3 60k IU"],
-        recent_reports=[
-            {
-                "title": "Comprehensive Annual Blood Panel",
-                "date": "2026-10-01",
-                "aiSummary": "Hemoglobin normal. Serum Vitamin D3 deficient (18.5 ng/mL)."
-            }
-        ],
-        prescriptions=[
-            {
-                "doctor": "Dr. Ramesh Kumar",
-                "date": "2026-10-01",
-                "items": ["Vitamin D3 60k IU once weekly"]
-            }
-        ],
-        timeline=[
-            {"date": "2026-10-07", "event": "Consulted AI Copilot for skin itching"},
-            {"date": "2026-10-01", "event": "Blood Test & Prescription from Dr. Ramesh Kumar"}
-        ]
+        patient_name=profile.name if shared_fields.get("profile", False) else "[Consent Not Given]",
+age=profile.age if shared_fields.get("profile", False) else 0,
+blood_group=profile.blood_group if shared_fields.get("profile", False) else "[Hidden]",
+        allergies=allergies,
+        conditions=conditions,
+        medicines=medicines,
+        recent_reports=recent_reports,
+        prescriptions=prescriptions,
+        timeline=timeline
     )
 
 # --- FHIR STANDARDS API ---
 
 @app.get("/api/fhir/Patient/{patient_id}")
-def get_fhir_patient(patient_id: str, db: Session = Depends(get_db)):
+
+@app.get("/api/fhir/Patient/{patient_id}")
+def get_fhir_patient(
+    patient_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    if patient_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot access another patient's records"
+        )
+
     patient_repo = PatientRepository(db)
     user = patient_repo.get_by_id(patient_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found"
+        )
+
     profile = patient_repo.get_profile_by_user_id(patient_id)
-    
+
     patient_data = {
         "user_id": patient_id,
-        "name": user.full_name if user else "Akhil Sharma",
-        "email": user.email if user else "akhil@example.com",
-        "age": profile.age if profile else 28,
-        "gender": profile.gender if profile else "Male",
-        "blood_group": profile.blood_group if profile else "B+"
+        "name": user.full_name,
+        "email": user.email,
+        "age": profile.age if profile else None,
+        "gender": profile.gender if profile else None,
+        "blood_group": profile.blood_group if profile else None
     }
+
     return FHIRAdapter.to_fhir_patient(patient_data)
+
 
 # --- SECURITY & AUDIT ENDPOINTS ---
 
 @app.get("/api/audit")
 def get_audit_logs(user_id: str = Depends(get_current_user_id)):
-    return AUDIT_LOGS_DB[:50]
+    return [
+        entry for entry in AUDIT_LOGS_DB
+        if entry.get("actor") in (user_id, "system")
+    ][:50]
 
 if __name__ == "__main__":
     import uvicorn
