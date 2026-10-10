@@ -13,6 +13,8 @@ class SpeechService {
   private isListening: boolean = false;
   private synthesis: SpeechSynthesis | null = typeof window !== 'undefined' ? window.speechSynthesis : null;
   private currentAudio: HTMLAudioElement | null = null;
+  private silenceTimer: any = null;
+  private speakTimeout: any = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -34,14 +36,27 @@ class SpeechService {
     onResult: (text: string, isFinal: boolean) => void,
     onError?: (err: any) => void
   ) {
-    if (!this.recognition) {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
       if (onError) onError('Speech recognition not supported in this browser.');
       return;
     }
 
-    this.recognition.lang = LANG_SPEECH_CODES[lang] || 'en-US';
+    // Clean up previous instance safely
+    this.stopListening();
 
-    this.recognition.onresult = (event: any) => {
+    const targetLangCode = LANG_SPEECH_CODES[lang] || 'en-US';
+    this.isListening = true;
+
+    // Create fresh SpeechRecognition object to eliminate Chrome InvalidStateError
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = targetLangCode;
+    this.recognition = rec;
+
+    rec.onresult = (event: any) => {
       let interimTranscript = '';
       let finalTranscript = '';
 
@@ -53,21 +68,39 @@ class SpeechService {
         }
       }
 
-      if (finalTranscript) {
-        onResult(finalTranscript, true);
-      } else if (interimTranscript) {
-        onResult(interimTranscript, false);
+      if (this.silenceTimer) {
+        clearTimeout(this.silenceTimer);
+        this.silenceTimer = null;
+      }
+
+      if (finalTranscript.trim()) {
+        onResult(finalTranscript.trim(), true);
+      } else if (interimTranscript.trim()) {
+        onResult(interimTranscript.trim(), false);
+        const textToSubmit = interimTranscript.trim();
+        // 1800ms generous fallback silence timer: triggers final result if user pauses for nearly 2 full seconds
+        this.silenceTimer = setTimeout(() => {
+          if (this.isListening && textToSubmit.length > 1) {
+            onResult(textToSubmit, true);
+          }
+        }, 1800);
       }
     };
 
-    this.recognition.onerror = (event: any) => {
+    rec.onerror = (event: any) => {
+      if (this.silenceTimer) clearTimeout(this.silenceTimer);
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        return; // Ignore transient no-speech or aborted events
+      }
+      console.warn('Speech recognition error:', event.error);
       if (onError) onError(event.error);
     };
 
-    this.recognition.onend = () => {
-      if (this.isListening) {
+    rec.onend = () => {
+      if (this.silenceTimer) clearTimeout(this.silenceTimer);
+      if (this.isListening && this.recognition === rec) {
         try {
-          this.recognition.start();
+          rec.start();
         } catch (e) {
           // ignore double start
         }
@@ -75,29 +108,37 @@ class SpeechService {
     };
 
     try {
-      this.recognition.start();
-      this.isListening = true;
+      rec.start();
     } catch (e) {
       console.warn('Speech recognition start failed:', e);
     }
   }
 
   public stopListening() {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
     this.isListening = false;
     if (this.recognition) {
+      const oldRec = this.recognition;
+      this.recognition = null;
       try {
-        this.recognition.stop();
-      } catch (e) {
-        // ignore
-      }
+        oldRec.onresult = null;
+        oldRec.onerror = null;
+        oldRec.onend = null;
+        oldRec.abort();
+      } catch (e) {}
     }
   }
 
   public speakText(text: string, lang: Language, onEnd?: () => void) {
     this.stopSpeaking();
 
-    // Clean text of markdown asterisks/notes before reading
+    // Clean text of markdown links, URLs, and asterisks before reading
     const cleanText = text
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+      .replace(/https?:\/\/[^\s]+/g, 'live direction map attached')
       .replace(/\*\*/g, '')
       .replace(/\n\n\(.*?\)/g, '')
       .replace(/⚠️/g, 'Warning.')
@@ -108,72 +149,89 @@ class SpeechService {
       return;
     }
 
-    // Try Web Speech Synthesis first
-    if (this.synthesis) {
-      const voices = this.synthesis.getVoices() || [];
-      const targetLangCode = LANG_SPEECH_CODES[lang] || 'en-US';
-      const matchedVoice = voices.find(v => 
-        v.lang.toLowerCase() === targetLangCode.toLowerCase() || 
-        v.lang.toLowerCase().startsWith(lang.toLowerCase())
-      );
+    let called = false;
+    const safeOnEnd = () => {
+      if (this.speakTimeout) {
+        clearTimeout(this.speakTimeout);
+        this.speakTimeout = null;
+      }
+      if (!called) {
+        called = true;
+        if (onEnd) onEnd();
+      }
+    };
 
-      if (matchedVoice) {
+    // Calculate maximum TTS speaking timeout safety wall (approx 14 chars/sec + 2s buffer)
+    const estimatedSpeakMs = Math.min(14000, Math.max(2500, (cleanText.length / 14) * 1000 + 1500));
+    this.speakTimeout = setTimeout(() => {
+      this.stopSpeaking();
+      safeOnEnd();
+    }, estimatedSpeakMs);
+
+    const targetLangCode = LANG_SPEECH_CODES[lang] || 'en-US';
+
+    // 1. Primary: Web Speech Synthesis (Supported natively in Chrome for English, Telugu, Hindi, Tamil, Kannada)
+    if (this.synthesis) {
+      try {
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = targetLangCode;
-        utterance.voice = matchedVoice;
-        utterance.rate = 0.95;
+        utterance.rate = 1.08;
         utterance.pitch = 1.0;
 
-        let called = false;
-        const handleEnd = () => {
-          if (!called && onEnd) {
-            called = true;
-            onEnd();
-          }
-        };
+        const voices = this.synthesis.getVoices() || [];
+        const matchedVoice = voices.find(v => 
+          v.lang.toLowerCase() === targetLangCode.toLowerCase() || 
+          v.lang.toLowerCase().startsWith(lang.toLowerCase())
+        );
 
-        utterance.onend = handleEnd;
-        utterance.onerror = handleEnd;
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
+        }
+
+        utterance.onend = safeOnEnd;
+        utterance.onerror = safeOnEnd;
 
         this.synthesis.speak(utterance);
         return;
+      } catch (err) {
+        console.warn('SpeechSynthesis Exception, trying fallback:', err);
       }
     }
 
-    // Fallback Audio Stream for Telugu, Hindi, Tamil, Kannada, English
+    // 2. Fallback Audio Stream for Telugu, Hindi, Tamil, Kannada, English
     try {
       const textChunk = cleanText.substring(0, 190);
       const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textChunk)}&tl=${lang || 'en'}&client=tw-ob`;
       
       this.currentAudio = new Audio(audioUrl);
-      
-      let called = false;
-      const handleEnd = () => {
-        if (!called && onEnd) {
-          called = true;
-          onEnd();
-        }
-      };
-
-      this.currentAudio.onended = handleEnd;
-      this.currentAudio.onerror = handleEnd;
+      this.currentAudio.playbackRate = 1.08;
+      this.currentAudio.onended = safeOnEnd;
+      this.currentAudio.onerror = safeOnEnd;
       
       this.currentAudio.play().catch(err => {
         console.warn('TTS Audio fallback stream error:', err);
-        handleEnd();
+        safeOnEnd();
       });
     } catch (err) {
       console.warn('Speech synthesis fallback exception:', err);
-      if (onEnd) onEnd();
+      safeOnEnd();
     }
   }
 
   public stopSpeaking() {
+    if (this.speakTimeout) {
+      clearTimeout(this.speakTimeout);
+      this.speakTimeout = null;
+    }
     if (this.synthesis) {
-      this.synthesis.cancel();
+      try {
+        this.synthesis.cancel();
+      } catch (e) {}
     }
     if (this.currentAudio) {
-      this.currentAudio.pause();
+      try {
+        this.currentAudio.pause();
+      } catch (e) {}
       this.currentAudio = null;
     }
   }

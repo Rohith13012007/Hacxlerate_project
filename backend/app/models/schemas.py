@@ -27,6 +27,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     language: Optional[str] = "en"
     user_id: Optional[str] = "user_001"
+    user_location: Optional[Dict[str, Any]] = None  # { "lat": float, "lng": float, "address": str }
 
 class ChatResponse(BaseModel):
     conversation_id: str
@@ -35,6 +36,8 @@ class ChatResponse(BaseModel):
     urgency: str  # LOW CONCERN, MODERATE CONCERN, URGENT, EMERGENCY
     is_emergency: bool
     specialist_recommendation: Optional[str] = None
+    nearby_doctor: Optional[Dict[str, Any]] = None
+    google_maps_url: Optional[str] = None
     followup_questions: List[str] = []
     audio_base64: Optional[str] = None
 
@@ -152,3 +155,4 @@ class DoctorAccessResponse(BaseModel):
     recent_reports: List[Dict[str, Any]]
     prescriptions: List[Dict[str, Any]]
     timeline: List[Dict[str, Any]]
+    recent_pre_consultation_brief: Optional[Dict[str, Any]] = None

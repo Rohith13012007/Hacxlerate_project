@@ -25,7 +25,7 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ isOpen, onClose, onNav
 
   if (!isOpen) return null;
 
-  const doctorPortalUrl = `${window.location.origin}/doctor-access?token=${currentToken}`;
+  const doctorPortalUrl = `${window.location.origin}/#/passport-view?token=${currentToken}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-md animate-fade-in">

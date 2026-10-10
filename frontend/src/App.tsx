@@ -26,8 +26,10 @@ import { FindDoctors } from './pages/FindDoctors';
 import { MedicalHistory } from './pages/MedicalHistory';
 import { Profile } from './pages/Profile';
 import { DoctorPortal } from './pages/DoctorPortal';
+import { PatientQRPassport } from './pages/PatientQRPassport';
 import { Emergency } from './pages/Emergency';
 import { Settings } from './pages/Settings';
+import { PublicPassportView } from './pages/PublicPassportView';
 
 const AppContent: React.FC = () => {
   const [currentPath, setCurrentPath] = useState<string>('/');
@@ -56,6 +58,11 @@ const AppContent: React.FC = () => {
     return <HomeLanding onNavigate={navigate} />;
   }
 
+  // 2. PUBLIC PATIENT HEALTH PASSPORT SCANNED VIEW (Accessible when QR is scanned by phone)
+  if (currentPath === '/passport-view' || currentPath === '/passport/view' || currentPath === '/scanned-passport') {
+    return <PublicPassportView onNavigate={navigate} />;
+  }
+
   // 2. PATIENT AUTHENTICATION ROUTES (PDF Pages 2, 3, 4)
   if (currentPath === '/login' || currentPath === '/patient-login') {
     return <PatientLogin onNavigate={navigate} initialStep="login" />;
@@ -65,7 +72,7 @@ const AppContent: React.FC = () => {
     return <PatientLogin onNavigate={navigate} initialStep="register" />;
   }
 
-  // 2. DOCTOR AUTHENTICATION ROUTES
+  // 3. DOCTOR AUTHENTICATION & STANDALONE DOCTOR DASHBOARD ROUTES
   if (currentPath === '/doctor-login') {
     return <DoctorLogin onNavigate={navigate} initialMode="login" />;
   }
@@ -74,16 +81,22 @@ const AppContent: React.FC = () => {
     return <DoctorLogin onNavigate={navigate} initialMode="register" />;
   }
 
-  // 3. OPTIONAL AUTH GATEWAY
+  if (currentPath === '/doctor-portal' || currentPath === '/doctor' || currentPath === '/doctor-dashboard' || currentPath === '/doctor-access') {
+    return <DoctorPortal onNavigate={navigate} />;
+  }
+
+  // 4. OPTIONAL AUTH GATEWAY
   if (currentPath === '/gateway' || currentPath === '/auth') {
     return <AuthGateway onNavigate={navigate} />;
   }
 
-  // 4. TEAMMATE APPLICATION VIEWS (Dashboard, DoctorPortal, etc.)
+  // 5. TEAMMATE APPLICATION VIEWS (Dashboard, PatientQRPassport, etc.)
   const renderPageComponent = () => {
     switch (currentPath) {
       case '/dashboard':
       case '/patient-dashboard':
+      case '/':
+      case '':
         return <Dashboard onNavigate={navigate} onOpenQR={() => setIsQRModalOpen(true)} />;
       case '/assistant':
         return <Assistant />;
@@ -106,16 +119,14 @@ const AppContent: React.FC = () => {
         return <MedicalHistory />;
       case '/profile':
         return <Profile />;
-      case '/doctor-access':
-      case '/doctor':
-      case '/doctor-portal':
-        return <DoctorPortal />;
+      case '/qr-passport':
+        return <PatientQRPassport onNavigate={navigate} onOpenQR={() => setIsQRModalOpen(true)} />;
       case '/emergency':
         return <Emergency />;
       case '/settings':
         return <Settings />;
       default:
-        return <AuthGateway onNavigate={navigate} />;
+        return <Dashboard onNavigate={navigate} onOpenQR={() => setIsQRModalOpen(true)} />;
     }
   };
 

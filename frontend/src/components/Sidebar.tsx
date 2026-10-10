@@ -33,15 +33,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
   const { logout } = useHealth();
   const menuItems: SidebarItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
-    { path: '/assistant', label: 'AI Assistant', icon: Bot, badge: 'AI' },
-    { path: '/reports', label: 'Health Records', icon: FileText },
+    { path: '/assistant', label: 'AI Voice Assistant', icon: Bot, badge: 'AI' },
+    { path: '/food', label: 'Food & Nutrition Scan', icon: Utensils },
+    { path: '/scan', label: 'Health & Injury Scan', icon: Camera },
+    { path: '/doctors', label: 'Find Doctors', icon: MapPin },
     { path: '/appointments', label: 'Appointments', icon: Calendar },
     { path: '/medicines', label: 'Medications', icon: Pill },
+    { path: '/reports', label: 'Health Records', icon: FileText },
     { path: '/history', label: 'Vitals & Tracking', icon: HeartPulse },
-    { path: '/scan', label: 'Scan & Upload', icon: Camera },
-    { path: '/food', label: 'Family Care', icon: Utensils },
-    { path: '/doctor-access', label: 'Health Passport', icon: QrCode },
-    { path: '/emergency', label: 'Notifications', icon: MapPin },
+    { path: '/qr-passport', label: 'QR Health Passport', icon: QrCode },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -69,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
         <div className="space-y-1">
           {menuItems.map(item => {
             const Icon = item.icon;
-            const isActive = currentPath === item.path || (currentPath === '' && item.path === '/');
+            const isActive = currentPath === item.path || ((currentPath === '' || currentPath === '/') && item.path === '/dashboard');
             return (
               <button
                 key={item.path}

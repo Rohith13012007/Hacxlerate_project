@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useHealth } from '../context/HealthContext';
 import { SafetyBanner } from '../components/SafetyBanner';
-import { Bot, User, Mic, Send, Sparkles, Plus, Stethoscope, FileCheck, CheckCircle2, ShieldCheck, X, MapPin } from 'lucide-react';
+import { Bot, User, Mic, Send, Sparkles, Plus, Stethoscope, FileCheck, CheckCircle2, ShieldCheck, X, MapPin, Globe } from 'lucide-react';
 import type { PatientSessionSummary } from '../services/groqService';
 
 export const Assistant: React.FC = () => {
@@ -13,7 +13,8 @@ export const Assistant: React.FC = () => {
     setIsVoiceModalOpen,
     activeLanguage,
     setActiveLanguage,
-    completeAndStoreConversationSummary
+    completeAndStoreConversationSummary,
+    userLocation
   } = useHealth();
 
   const [input, setInput] = useState('');
@@ -27,6 +28,53 @@ export const Assistant: React.FC = () => {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentConv?.messages]);
+
+  const renderMessageContent = (text: string) => {
+    if (!text) return null;
+    const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
+    const parts: (string | React.ReactNode)[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = linkRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      const label = match[1];
+      const url = match[2];
+      const isGoogleMap = url.includes('google.com/maps');
+
+      parts.push(
+        <a
+          key={match.index}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={
+            isGoogleMap
+              ? "inline-flex items-center space-x-2 px-3.5 py-2 my-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-blue-600/30 transition-all cursor-pointer border border-blue-400"
+              : "text-blue-600 hover:underline font-bold"
+          }
+        >
+          {isGoogleMap && <MapPin className="w-4 h-4 text-rose-300 animate-bounce" />}
+          <span>{label}</span>
+        </a>
+      );
+      lastIndex = linkRegex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    if (parts.length === 0) return <p className="whitespace-pre-line">{text}</p>;
+
+    return (
+      <div className="whitespace-pre-line">
+        {parts.map((part, idx) => (typeof part === 'string' ? part : <React.Fragment key={idx}>{part}</React.Fragment>))}
+      </div>
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,6 +176,13 @@ export const Assistant: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2">
+            {userLocation && (
+              <div className="hidden lg:flex items-center space-x-1.5 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200 text-xs font-bold">
+                <MapPin className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                <span>GPS Active: {userLocation.address || `${userLocation.lat.toFixed(3)}, ${userLocation.lng.toFixed(3)}`}</span>
+              </div>
+            )}
+
             <button
               onClick={handleEndAndSummarizeSession}
               disabled={summarizing}
@@ -137,18 +192,19 @@ export const Assistant: React.FC = () => {
               <span>Analyze & Store Patient Record</span>
             </button>
 
-            <div className="flex items-center space-x-1 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Language:</span>
+            <div className="flex items-center space-x-1.5 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-200 text-blue-800 text-xs font-extrabold shadow-2xs">
+              <Globe className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
               <select
                 value={activeLanguage}
                 onChange={(e) => setActiveLanguage(e.target.value as any)}
-                className="bg-transparent text-slate-800 text-xs font-bold focus:outline-none cursor-pointer"
+                className="bg-transparent font-extrabold text-blue-800 text-xs focus:outline-none cursor-pointer pr-1"
+                title="Select Manual AI Language"
               >
-                <option value="en">English (Auto)</option>
+                <option value="en">English</option>
                 <option value="te">తెలుగు (Telugu)</option>
                 <option value="hi">हिन्दी (Hindi)</option>
                 <option value="ta">தமிழ் (Tamil)</option>
-                <option value="kn">కన్నడ (Kannada)</option>
+                <option value="kn">ಕನ್ನಡ (Kannada)</option>
               </select>
             </div>
           </div>
@@ -159,18 +215,44 @@ export const Assistant: React.FC = () => {
           <SafetyBanner customMessage="Interactive health advice. For severe chest pain, breathlessness, or emergency signs, click Emergency." />
         </div>
 
-        {/* Messages Stream */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
+        {/* Messages Stream with AI Voice Assistant Background Art */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-blue-50/30 to-slate-50/50 relative">
           {(!currentConv?.messages || currentConv.messages.length === 0) && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-3">
-              <div className="w-16 h-16 rounded-3xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shadow-md">
-                <Bot className="w-8 h-8" />
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 relative overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-sm">
+              
+              {/* Voice Assistant Graphic Background */}
+              <div className="absolute inset-0 opacity-15 pointer-events-none">
+                <img 
+                  src="/images/voice_assistant_bg.jpg" 
+                  alt="AI Voice Assistant Graphic" 
+                  className="w-full h-full object-cover"
+                />
               </div>
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900">AI Health Copilot Ready</h3>
-                <p className="text-xs text-slate-500 font-medium max-w-sm mt-1 leading-relaxed">
-                  Start speaking or typing to describe your symptoms. Responses will generate dynamically live in real-time!
-                </p>
+
+              <div className="relative z-10 flex flex-col items-center space-y-4 max-w-md">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-500 flex items-center justify-center text-white shadow-xl shadow-blue-600/30 ring-4 ring-blue-100">
+                  <Bot className="w-10 h-10 animate-bounce" />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center justify-center space-x-2">
+                    <span>AI Health Copilot Ready</span>
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
+                    Start speaking or typing to describe your symptoms. Voice and text responses generate live in your chosen language!
+                  </p>
+                </div>
+
+                <div className="pt-2 flex items-center space-x-3">
+                  <button
+                    onClick={() => setIsVoiceModalOpen(true)}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs shadow-md shadow-blue-600/20 transition-all flex items-center space-x-2 cursor-pointer"
+                  >
+                    <Mic className="w-4 h-4 text-cyan-300 animate-pulse" />
+                    <span>Launch Live Voice Mode</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -203,7 +285,7 @@ export const Assistant: React.FC = () => {
                     : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none font-medium shadow-xs'
                 }`}
               >
-                <p className="whitespace-pre-line">{msg.text}</p>
+                {renderMessageContent(msg.text)}
                 {msg.specialistRecommendation && (
                   <div className="mt-3 p-3 bg-teal-50/90 border border-teal-200 rounded-xl space-y-2 text-xs">
                     <div className="flex items-center space-x-2 text-teal-800 font-extrabold">

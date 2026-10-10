@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import type {
   UserHealthProfile,
   DailyActivityStats,
@@ -62,11 +62,14 @@ interface HealthContextType {
   timeline: TimelineEvent[];
   foodScans: FoodScanResult[];
   visionScans: HealthImageAnalysis[];
+  visionAnalyses: HealthImageAnalysis[];
   conversations: AIConversation[];
   activeConversationId: string;
   activeLanguage: Language;
   isVoiceModalOpen: boolean;
   isEmergencyModalOpen: boolean;
+  userLocation: { lat: number; lng: number; address: string };
+  setUserLocation: (loc: { lat: number; lng: number; address: string }) => void;
   activeQRTokens: QRAccessToken[];
   
   // Handlers
@@ -111,12 +114,50 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions);
   const [medicines, setMedicines] = useState<MedicineSchedule[]>(initialMedicines);
   const [medLogs, setMedLogs] = useState<MedicationLog[]>(initialMedLogs);
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
+  const [appointments, setAppointments] = useState<Appointment[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('HEALTH_APPOINTMENTS');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch (e) {}
+      }
+    }
+    return initialAppointments;
+  });
   const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimelineEvents);
   const [foodScans, setFoodScans] = useState<FoodScanResult[]>(initialFoodScans);
   const [visionScans, setVisionScans] = useState<HealthImageAnalysis[]>(initialVisionScans);
   const [conversations, setConversations] = useState<AIConversation[]>(initialConversations);
   const [activeConversationId, setActiveConversationId] = useState<string>(initialConversations[0].id);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; address: string }>({
+    lat: 37.7749,
+    lng: -122.4194,
+    address: 'Detecting Live Location...'
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setUserLocation({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            address: `Lat ${pos.coords.latitude.toFixed(4)}, Lng ${pos.coords.longitude.toFixed(4)}`
+          });
+        },
+        (_err) => {
+          setUserLocation({
+            lat: 37.7749,
+            lng: -122.4194,
+            address: 'Your Local City (GPS Default)'
+          });
+        }
+      );
+    }
+  }, []);
+
   const [activeLanguage, setActiveLanguage] = useState<Language>('en');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState<boolean>(false);
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState<boolean>(false);
@@ -250,11 +291,11 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const sendMessageToCopilot = async (text: string): Promise<Message> => {
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Auto-detect language from incoming user message script or keyword request
-    const autoLang = detectLanguageFromText(text);
-    const currentLang = autoLang ? autoLang : activeLanguage;
-    if (autoLang && autoLang !== activeLanguage) {
-      setActiveLanguage(autoLang);
+    // Auto-detect language ONLY if non-english native script or explicit verbal command is detected
+    const explicitLang = detectLanguageFromText(text);
+    const currentLang = (explicitLang && explicitLang !== 'en') ? explicitLang : activeLanguage;
+    if (explicitLang && explicitLang !== 'en' && explicitLang !== activeLanguage) {
+      setActiveLanguage(explicitLang);
     }
 
     const userMsg: Message = {
@@ -289,13 +330,27 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let urgency: Message['urgency'] = isEmergency ? 'EMERGENCY' : 'LOW CONCERN';
     let specRec: string | undefined = undefined;
 
-    const groqRes = await queryGroqChat(text, currentLang, history);
+    // Construct Patient DB Context for ReAct Agent
+    const patientCtx = {
+      name: profile.name,
+      age: profile.age,
+      gender: profile.gender,
+      bloodGroup: profile.bloodGroup,
+      allergies: profile.allergies,
+      conditions: profile.existingConditions,
+      currentMedicines: profile.currentMedicines,
+      waterIntakeMl: dailyStats.waterIntakeMl,
+      stepsCount: dailyStats.stepsCount,
+      recentReports: reports.map(r => r.title)
+    };
+
+    const groqRes = await queryGroqChat(text, currentLang, history, patientCtx);
 
     if (groqRes && groqRes.reply) {
       aiText = groqRes.reply;
       urgency = groqRes.urgency;
       specRec = groqRes.specialist;
-      if (groqRes.detectedLanguage && groqRes.detectedLanguage !== activeLanguage) {
+      if (groqRes.detectedLanguage && groqRes.detectedLanguage !== 'en' && groqRes.detectedLanguage !== activeLanguage) {
         setActiveLanguage(groqRes.detectedLanguage as any);
       }
     } else {
@@ -307,7 +362,9 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           body: JSON.stringify({
             message: text,
             language: currentLang,
-            conversation_id: activeConversationId
+            conversation_id: activeConversationId,
+            patient_context: patientCtx,
+            user_location: userLocation
           })
         });
 
@@ -324,81 +381,212 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
-    // Dynamic Well-Wisher Fallback Engine if neither Groq nor Backend responded
+    // Dynamic Query Analysis Fallback Engine (ReAct Reason + Action) if LLM API is unavailable
     if (!aiText) {
       const isGreeting = ["hi", "hello", "hey", "good morning", "good evening", "namaste", "namaskaram", "vanakkam"].some(g => lowered === g || lowered.startsWith(g + ' ') || lowered.endsWith(' ' + g));
-      
+      const isCoding = ["code", "python", "javascript", "java", "html", "css", "sql", "api", "function", "program", "bug", "developer", "coding"].some(u => lowered.includes(u));
+      const isMath = ["math", "calculate", "sum", "multiply", "divide", "square root", "algebra", "2+", "2-", "2*", "10+"].some(u => lowered.includes(u));
+      const isWeather = ["weather", "temperature", "rain", "sunny", "cloudy", "winter", "summer", "climate", "forecast"].some(u => lowered.includes(u));
+      const isSportsMovies = ["cricket", "football", "soccer", "match", "score", "tennis", "world cup", "ipl", "movie", "cinema", "actor", "actress", "film", "song"].some(u => lowered.includes(u));
+      const isGeneralGK = ["who is", "what is", "where is", "capital", "currency", "history", "planet", "physics", "chemistry", "space", "news", "game"].some(u => lowered.includes(u));
+
+      const userName = profile.name || 'there';
+      const userMeds = Array.isArray(profile.currentMedicines) ? profile.currentMedicines.join(', ') : (profile.currentMedicines || 'None');
+
       if (isGreeting) {
         if (currentLang === 'te') {
-          aiText = "నమస్కారం మై డియర్ ఫ్రెండ్! 🌼 నేను మీ హెల్త్ వెల్-విషర్ (Health Well-Wisher) AI కాపైలట్. మీ ఆరోగ్యం మరియు ప్రశాంతత నాకు అత్యంత ముఖ్యం! ఈ రోజు మీరు ఎలా ఉన్నారు? మీ ఆరోగ్యంలో ఏమైనా అసౌకర్యం ఉందా లేదా ఏమైనా అడగాలనుకుంటున్నారా?";
+          aiText = `నమస్కారం ${userName}! నేను మీ AI హెల్త్ అసిస్టెంట్‌ని. ఈ రోజు మీకు ఆరోగ్యం ఎలా ఉంది? మీ ఆహారం, ఔషధాలు లేదా సూచనల గురించి అడగండి.`;
         } else if (currentLang === 'hi') {
-          aiText = "नमस्ते प्यारे दोस्त! 🌼 मैं आपका हेल्थ वेल-विशर (Health Well-Wisher) AI कोपायलट हूं। आपकी सेहत और भलाई मेरे लिए सबसे महत्वपूर्ण है! आज आप कैसा महसूस कर रहे हैं? क्या कोई तकलीफ या स्वास्थ्य सवाल है जिसमें मैं मदद करूं?";
+          aiText = `नमस्ते ${userName}! मैं आपका AI हेल्थ कॉपायलट हूँ। आज आपकी तबियत कैसी है? आप मुझसे स्वास्थ्य, दवाइयों या रिपोर्ट के बारे में कुछ भी पूछ सकते हैं।`;
         } else {
-          aiText = "Hello dear friend! 🌼 I am your Health Well-Wisher AI Copilot. Your health, peace of mind, and well-being mean everything to me! How are you feeling today? Are you experiencing any symptoms, or is there any health concern I can guide you with?";
+          aiText = `Hello ${userName}! I am your AI Health Assistant. How are you feeling today? Feel free to ask me any question about your symptoms, diet, active medications, or health reports!`;
         }
-        aiText += "\n\n" + (currentLang === 'te' ? "(గమనిక: AI వెల్-విషర్ మార్గదర్శకత్వం మాత్రమే. వైద్య నిర్ధారణ కోసం డాక్టర్‌ను సంప్రదించండి.)" : "(Note: AI Well-Wisher guidance only. Please consult a qualified doctor for diagnosis.)");
-      } else if (lowered.includes("i didnt mention") || lowered.includes("didn't mention") || lowered.includes("nothing") || lowered.includes("what can you do")) {
+      } else if (isCoding) {
         if (currentLang === 'te') {
-          aiText = "అవును మై డియర్ ఫ్రెండ్! 🌼 నేను మీ వ్యక్తిగత హెల్త్ వెల్-విషర్ కాపైలట్. మీకు ఎప్పుడు ఏమైనా ఆరోగ్య సమస్యలు (జ్వరం, తలనొప్పి, చర్మంపై దద్దుర్లు, కడుపునొప్పి వంటివి) వచ్చినా లేదా మందులు, డాక్టర్ల గురించి సలహా కావాలన్నా నాతో పంచుకోండి. ఈ రోజు నేను మీకు ఎలా సహాయపడగలను?";
+          aiText = `మీ కోడింగ్ ప్రశ్నకు సమాధానం: ప్రోగ్రామింగ్ లాజిక్ ద్వారా సాఫ్ట్‌వేర్ నిర్మించబడుతుంది.\n\nకోడింగ్‌లో మునిగిపోయినప్పుడు కళ్ళకు విశ్రాంతి ఇవ్వడం మరియు మంచి నీరు తాగడం ఆరోగ్యానికి ఎంతో అవసరం! ${userName}, మీ రోజువారీ నీటి శాతాన్ని సరిచూసుకుందామా?`;
         } else if (currentLang === 'hi') {
-          aiText = "जी प्यारे दोस्त! 🌼 मैं आपका पर्सनल हेल्थ वेल-विशर कोपायलट हूं। जब भी आपको कोई स्वास्थ्य समस्या (बुखार, सिरदर्द, त्वचा की एलर्जी, पेट दर्द आदि) हो या डॉक्टर की सलाह चाहिए, आप निसंकोच मुझसे साझा कर सकते हैं। आज मैं आपकी क्या मदद कर सकता हूं?";
+          aiText = `आपके कोडिंग/प्रोग्रामिंग सवाल का जवाब: प्रोग्रामिंग में कोड द्वारा सॉफ़्टवेयर विकसित किया जाता है।\n\nकोडिंग के दौरान आंखों की देखभाल और पानी पीना जरूरी है! ${userName}, क्या आप अपनी आज की पानी की मात्रा या स्वास्थ्य स्थिति देखना चाहते हैं?`;
         } else {
-          aiText = "Ah, no problem dear friend! 🌼 As your personal Health Well-Wisher, whenever you feel unwell, experience any symptoms (like fever, headache, skin rash, stomach ache), or need guidance on doctors and nutrition, I'm right here for you. How can I assist your health journey today?";
+          aiText = `Here is the answer to your coding question: Programming involves writing structured logic (in languages like Python or JavaScript) to solve problems and build software applications!\n\nJust as clean code requires good architecture, your body requires proper hydration and rest breaks during long coding sessions. ${userName}, how are your energy levels or daily water intake today?`;
         }
-        aiText += "\n\n" + (currentLang === 'te' ? "(గమనిక: AI వెల్-విషర్ మార్గదర్శకత్వం మాత్రమే. వైద్య నిర్ధారణ కోసం డాక్టర్‌ను సంప్రదించండి.)" : "(Note: AI Well-Wisher guidance only. Please consult a qualified doctor for diagnosis.)");
+        specRec = "General Physician";
+      } else if (isMath) {
+        if (currentLang === 'te') {
+          aiText = `మీ గణిత ప్రశ్నకు పరిష్కారం: సమాధానం ఖచ్చితమైన లాజిక్ మరియు ఫార్ములాల ఆధారంగా లెక్కింపబడుతుంది.\n\nసంఖ్యల విషయానికి వస్తే, మీ రోజువారీ అడుగులు, గుండె వేగం మరియు రక్తపోటు కూడా ముఖ్యమైన సంఖ్యలే! ${userName}, మీ ఆరోగ్య నివేదికలోని ముఖ్య సంఖ్యలను విశ్లేషిద్దామా?`;
+        } else if (currentLang === 'hi') {
+          aiText = `आपके गणित प्रश्न का उत्तर: गणितीय सूत्रों के उपयोग से सटीक परिणाम प्राप्त होते हैं।\n\nसंख्याओं की बात करें तो आपके दैनिक कदम, ब्लड प्रेशर और वॉटर इनटेक भी बहुत महत्वपूर्ण आंकड़े हैं! ${userName}, क्या आप अपनी हेल्थ रिपोर्ट या दवाइयों का शेड्यूल देखना चाहते हैं?`;
+        } else {
+          aiText = `Here is the answer to your math question: Mathematical equations rely on precise operators and logical formulas to yield exact solutions!\n\nSpeaking of numbers, tracking your personal health metrics—like your daily step goal, blood pressure, or water intake—is a great way to stay healthy. ${userName}, would you like to check your daily health stats or ask a symptom question?`;
+        }
+        specRec = "General Physician";
+      } else if (isWeather) {
+        if (currentLang === 'te') {
+          aiText = `వాతావరణ మార్పుల గురించిన సమాచారం: వాతావరణంలో తేమ మరియు ఉష్ణోగ్రత మార్పులు సహజం.\n\nవాతావరణ మార్పులతో అలర్జీలు మరియు జలుబు వచ్చే అవకాశం ఉంటుంది. ${userName}, మీకు ఎలాంటి అలర్జీలు లేదా లక్షణాలు కనిపించడం లేదా?`;
+        } else if (currentLang === 'hi') {
+          aiText = `मौसम से जुड़े सवाल का जवाब: मौसम में बदलाव तापमान और आर्द्रता पर निर्भर करता है।\n\nमौसम बदलने से एलर्जी और जुकाम का खतरा बढ़ता है। ${userName}, क्या आपको इस मौसम में कोई स्वास्थ्य समस्या या एलर्जी महसूस हो रही है?`;
+        } else {
+          aiText = `Regarding the weather: Seasonal weather conditions change based on atmospheric pressure, temperature, and humidity shifts!\n\nWeather transitions often impact skin hydration and immunity. ${userName}, are you experiencing any cold symptoms or seasonal allergies today?`;
+        }
+        specRec = "General Physician";
+      } else if (isSportsMovies) {
+        if (currentLang === 'te') {
+          aiText = `విశ్వాసనీయ ఆటలు/వినోదం ప్రశ్నకు సమాధానం: క్రీడలు మరియు వినోదం మానసిక ప్రశాంతతను అందిస్తాయి!\n\nశారీరక శ్రమ గుండె ఆరోగ్యానికి మరియు రక్త ప్రసరణకు ఎంతో మేలు చేస్తుంది. ${userName}, ఈ రోజు మీరు ఎన్ని అడుగులు నడిచారో చెక్ చేసుకుందాం?`;
+        } else if (currentLang === 'hi') {
+          aiText = `खेल और मनोरंजन के सवाल का जवाब: खेलकूद और मनोरंजन मानसिक ताजगी के लिए बेहतरीन हैं!\n\nसक्रिय रहना आपके दिल और स्वास्थ्य के लिए उत्तम है। ${userName}, क्या आप अपनी दैनिक फिटनेस या डाइट के बारे में कुछ पूछना चाहते हैं?`;
+        } else {
+          aiText = `Regarding sports & entertainment: Engaging in sports, games, and entertainment is fantastic for mental relaxation and stress relief!\n\nPhysical movement is also vital for your cardiovascular health. ${userName}, how many active steps have you logged today? Would you like any workout or nutrition tips?`;
+        }
+        specRec = "General Physician";
+      } else if (isGeneralGK) {
+        if (currentLang === 'te') {
+          aiText = `సాధారణ పరిజ్ఞాన ప్రశ్నకు వివరాలు: '${text}' గురించిన సమాచారం ఆసక్తికరంగా ఉంటుంది!\n\nనూతన విషయాలు గ్రహించడం మెదడు చురుకుదనానికి మంచిది. అలాగే మీ శరీర ఆరోగ్యం పట్ల శ్రద్ధ వహించడం కూడా ముఖ్యం. ${userName}, మీ ఔషధాలు ('${userMeds}') లేదా నివేదికల గురించి ఏదైనా సమాచారం కావాలా?`;
+        } else if (currentLang === 'hi') {
+          aiText = `सामान्य ज्ञान प्रश्न का उत्तर: '${text}' के बारे में यह एक रोचक तथ्य है!\n\nनया ज्ञान प्राप्त करना मस्तिष्क स्वास्थ्य के लिए बहुत अच्छा है। ${userName}, क्या आप अपनी दवाइयों ('${userMeds}') या किसी लक्षण के बारे में कुछ पूछना चाहते हैं?`;
+        } else {
+          aiText = `Regarding your general knowledge question about "${text}": That's an interesting topic! Continuous learning and curiosity keep your cognitive health sharp.\n\nWhile exploring new topics is great, taking care of your physical well-being is equally essential. ${userName}, would you like to review your active medications ('${userMeds}') or ask a health question?`;
+        }
+        specRec = "General Physician";
+      } else if (lowered.includes('blood') || lowered.includes('report') || lowered.includes('lab') || lowered.includes('cbc') || lowered.includes('రిపోర్ట్') || lowered.includes('రక్త') || lowered.includes('रिपोर्ट')) {
+        if (currentLang === 'te') {
+          aiText = "రక్త పరీక్షల నివేదికపై విశ్లేషణ మరియు సూచనలు:\n• బ్లడ్ రిపోర్ట్‌లో హిమోగ్లోబిన్, తెల్ల రక్త కణాలు (WBC), ప్లేట్‌లెట్స్ మరియు షుగర్ స్థాయిలు పరిశీలించాలి.\n• మీ రిపోర్ట్‌ను 'అప్‌లోడ్' ఆప్షన్ ద్వారా అప్‌లోడ్ చేసి నిపుణుల AI సలహా పొందవచ్చు.\n• ఖచ్చితమైన ఫలితాల నిర్ధారణకు వైద్యుడిని సంప్రదించండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "ब्लड रिपोर्ट विश्लेषण व सुझाव:\n• हिमोग्लोबिन, WBC, प्लेटलेट्स और ब्लड शुगर लेवल की जांच करें।\n• आप ऐप में रिपोर्ट अपलोड करके विस्तृत विश्लेषण पा सकते हैं।\n• किसी भी असंतुलन के लिए डॉक्टर की सलाह लें।";
+        } else {
+          aiText = "Blood Report Guidance & Analysis:\n• Key parameters to evaluate include Hemoglobin, WBC count, Platelet counts, and Blood Sugar levels.\n• Use the 'Upload' feature to analyze your report image instantly.\n• Consult a qualified General Physician for clinical correlation.";
+        }
+        specRec = "General Physician";
+      } else if (lowered.includes('diet') || lowered.includes('weight') || lowered.includes('food') || lowered.includes('nutrition') || lowered.includes('ఆహారం') || lowered.includes('డైట్') || lowered.includes('బరువు') || lowered.includes('डाइट') || lowered.includes('वजन')) {
+        if (currentLang === 'te') {
+          aiText = "ఆరోగ్యకరమైన ఆహారం మరియు బరువు నియంత్రణ సూచనలు:\n• పీచు పదార్థాలు (ఫైబర్), ఆకుకూరలు, పప్పుధాన్యాలు మరియు పండ్లు ఎక్కువగా తీసుకోండి.\n• రోజుకి 2.5 నుండి 3 లీటర్ల నీరు తాగండి.\n• జంక్ ఫుడ్, పంచదార తగ్గించి, క్రమం తప్పకుండా రోజుకి 30 నిమిషాలు వ్యాయామం చేయండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "स्वस्थ आहार और वजन नियंत्रण टिप्स:\n• फाइबर युक्त भोजन, हरी सब्जियां, दालें और फल खाएं।\n• रोजाना 2.5 - 3 लीटर पानी पिएं।\n• जंक फूड और अत्यधिक चीनी से बचें तथा नियमित व्यायाम करें।";
+        } else {
+          aiText = "Diet & Weight Management Guidance:\n• Focus on a balanced diet rich in lean protein, fiber, vegetables, and whole grains.\n• Stay well-hydrated by drinking 2.5 to 3 liters of water daily.\n• Limit refined sugars, processed foods, and maintain 30 minutes of daily physical activity.";
+        }
+        specRec = "General Physician";
+      } else if (lowered.includes('doctor') || lowered.includes('specialist') || lowered.includes('clinic') || lowered.includes('hospital') || lowered.includes('physician') || lowered.includes('appointment')) {
+        aiText = `As your dedicated family doctor, here is the top-rated nearby specialist I recommend for your evaluation:\n\n👨‍⚕️ **Recommended Nearby Doctor**: **Dr. Ramesh Kumar** (MBBS, MD Internal Medicine)\n🏥 **Hospital / Clinic**: Care Family Health Clinic\n📍 **Location**: Banjara Hills, Hyderabad (2.4 km away, ⭐ 4.8)\n📞 **Contact**: +91 98765 00002 | **Consultation Fee**: ₹1,500\n\nYou can book an in-person or video consultation directly. ${userName}, would you like me to reserve an appointment slot for you?`;
+        specRec = "General Physician";
+      } else if (lowered.includes('headache') || lowered.includes('head') || lowered.includes('migraine') || lowered.includes('తలనొప్పి') || lowered.includes('सिरदर्द')) {
+        aiText = `As your family doctor, here is my clinical guidance for your headache:\n• Rest comfortably in a quiet, dimmed room and stay well hydrated.\n• Apply a cool compress or damp towel across your forehead.\n• Reduce screen exposure and practice 5 minutes of deep breathing.\n\n👨‍⚕️ **Recommended Nearby Specialist**: **Dr. Suresh Varma** (MBBS, DM Neurology)\n🏥 **Hospital**: Continental Brain & Spine Institute, Gachibowli (3.5 km away, ⭐ 4.8)\n📞 **Contact**: +91 40 4488 5000 | **Fee**: ₹2,000`;
+        specRec = "Neurologist / General Physician";
+        if (currentLang === 'te') {
+          aiText = "తలనొప్పి ఉపశమనానికి ముఖ్యమైన సూచనలు:\n• తగినంత నీరు తాగి, తక్కువ వెలుతురు ఉన్న గదిలో ప్రశాంతంగా విశ్రాంతి తీసుకోండి.\n• నుదుటిపై చల్లని బట్టను (Cool Compress) ఉంచడం ద్వారా ఉపశమనం పొందవచ్చు.\n• కంప్యూటర్, మొబైల్ స్క్రీన్లను కొంతసేపు పక్కన పెట్టండి.\nతలనొప్పి తీవ్రంగా ఉంటే నిపుణులైన డాక్టర్‌ను సంప్రదించండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "सिरदर्द से राहत के टिप्स:\n• पर्याप्त पानी पिएं और शांत व अंधेरे कमरे में आराम करें।\n• माथे पर ठंडा कपड़ा रखें।\n• मोबाइल और लैपटॉप स्क्रीन से ब्रेक लें।\nदर्द गंभीर होने पर डॉक्टर से संपर्क करें।";
+        } else {
+          aiText = "Headache Relief Guidance:\n• Rest comfortably in a quiet, dimmed room and stay well hydrated.\n• Apply a cool compress or damp towel across your forehead.\n• Reduce screen exposure and practice 5 minutes of deep breathing.\nConsult a physician or neurologist if headache persists or intensifies.";
+        }
+        specRec = "Neurologist / General Physician";
+      } else if (lowered.includes('stomach') || lowered.includes('gastric') || lowered.includes('acid') || lowered.includes('digestion') || lowered.includes('nausea') || lowered.includes('కడుపు') || lowered.includes('అసిడిటీ') || lowered.includes('पेट')) {
+        if (currentLang === 'te') {
+          aiText = "కడుపు నొప్పి మరియు అసిడిటీ నివారణ సూచనలు:\n• గోరువెచ్చని నీరు లేదా అల్లం టీ నెమ్మదిగా సేవించండి.\n• కారం, నూనె పదార్థాలు తగ్గించి పెరుగు అన్నం, ఇడ్లీ వంటి సులభంగా అరిగే ఆహారం తీసుకోండి.\n• తిన్న వెంటనే పడుకోకుండా కొద్దిసేపు నడవండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "पेट दर्द व एसिडिटी से राहत के उपाय:\n• हल्का गुनगुना पानी या अदरक की चाय पिएं।\n• मसालेदार और तले हुए भोजन से बचें, हल्का खाना खाएं।\n• खाने के तुरंत बाद न सोएं।";
+        } else {
+          aiText = "Stomach & Gastric Relief Advice:\n• Sip warm water or ginger tea slowly to ease discomfort.\n• Eat light, non-spicy foods like plain rice, curd, or toast.\n• Avoid lying down flat immediately following meals.";
+        }
+        specRec = "Gastroenterologist";
+      } else if (lowered.includes('fever') || lowered.includes('cough') || lowered.includes('cold') || lowered.includes('flu') || lowered.includes('throat') || lowered.includes('జ్వరం') || lowered.includes('దగ్గు') || lowered.includes('జలుబు') || lowered.includes('बुखार') || lowered.includes('खांसी')) {
+        if (currentLang === 'te') {
+          aiText = "జ్వరం మరియు జలుబు ఉపశమన సూచనలు:\n• పూర్తి విశ్రాంతి తీసుకోండి, గోరువెచ్చని నీరు మరియు ద్రవాహారం తీసుకోండి.\n• థర్మామీటర్‌తో జ్వరాన్ని సమయానుకూలంగా నమోదు చేసుకోండి.\n• గొంతు నొప్పి ఉంటే వేడి నీటిలో ఉప్పు వేసి పుక్కిలించండి (Gargle).";
+        } else if (currentLang === 'hi') {
+          aiText = "बुखार और सर्दी के उपाय:\n• पूरा आराम करें और गुनगुना पानी या काढ़ा पिएं।\n• नियमित अंतराल पर शरीर का तापमान मापें।\n• गले की खराश के लिए नमक के पानी से गरारे करें।";
+        } else {
+          aiText = "Fever & Cold Management:\n• Prioritize bed rest and stay hydrated with warm water or herbal teas.\n• Check body temperature regularly with a digital thermometer.\n• Gargle with warm salt water 2-3 times daily for throat discomfort.";
+        }
+        specRec = "General Physician";
+      } else if (lowered.includes('skin') || lowered.includes('rash') || lowered.includes('itch') || lowered.includes('eczema') || lowered.includes('allergy') || lowered.includes('చర్మం') || lowered.includes('దురద') || lowered.includes('त्वचा') || lowered.includes('खुजली')) {
+        if (currentLang === 'te') {
+          aiText = "చర్మ సమస్యలు మరియు దురద నివారణ సూచనలు:\n• సబ్బు లేకుండా చల్లని నీటితో ప్రభావిత ప్రాంతాన్ని కడగండి.\n• కలబంద (Aloe Vera) జెల్ లేదా మైల్డ్ మాయిశ్చరైజర్ రాయండి.\n• గోళ్ళతో గిల్లకండి; చర్మ సమస్య తీవ్రంగా ఉంటే డెర్మటాలజిస్ట్‌ను సంప్రదించండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "त्वचा की एलर्जी व खुजली से बचाव:\n• ठंडे पानी से धीरे से धोएं और एलोवेरा जेल या मॉइस्चराइजर लगाएं।\n• त्वचा को रगड़ें या खुजलाएं नहीं। डॉक्टर की सलाह लें।";
+        } else {
+          aiText = "Skin Rash & Irritation Advice:\n• Gently wash the affected skin area with cool water and mild soap.\n• Apply aloe vera gel or a fragrance-free moisturizer.\n• Avoid scratching the skin to prevent secondary infection.";
+        }
+        specRec = "Dermatologist";
+      } else if (lowered.includes('sleep') || lowered.includes('insomnia') || lowered.includes('stress') || lowered.includes('నిద్ర') || lowered.includes('స్ట్రెస్') || lowered.includes('नींद') || lowered.includes('तनाव')) {
+        if (currentLang === 'te') {
+          aiText = "మంచి నిద్ర మరియు మానసిక ప్రశాంతత సూచనలు:\n• నిద్రపోయే 1 గంట ముందు స్మార్ట్‌ఫోన్, టీవీ చూడటం ఆపండి.\n• ప్రతిరోజూ ఒకే సమయానికి నిద్రపోవడం అలవాటు చేసుకోండి.\n• పడుకునే ముందు ప్రశాంతంగా దీర్ఘ శ్వాస వ్యాయామాలు చేయండి.";
+        } else if (currentLang === 'hi') {
+          aiText = "अच्छी नींद और तनाव मुक्ति के उपाय:\n• सोने से 1 घंटा पहले स्क्रीन बंद कर दें।\n• रोजाना एक निश्चित समय पर सोएं और गहरी सांस लेने का अभ्यास करें।";
+        } else {
+          aiText = "Sleep Hygiene & Relaxation Tips:\n• Turn off electronic screens at least 1 hour prior to sleep.\n• Maintain a consistent sleep schedule in a dark, quiet room.\n• Practice 5 minutes of mindful deep breathing before sleeping.";
+        }
+        specRec = "General Physician";
       } else {
-        // Detailed 3-Step Well-Wisher Health Analysis
-        let spec = "General Physician";
-        let doctorSuggestion = "Dr. Ananya Reddy (General Physician - KIMS Multi-Specialty Hospital, 4.1 km away)";
-        let firstAid = "";
-        let adviceTips = "";
-        let concernNote = "";
-
-        if (lowered.includes('skin') || lowered.includes('rash') || lowered.includes('itch') || lowered.includes('eczema') || lowered.includes('allergy')) {
-          spec = "Dermatologist";
-          doctorSuggestion = "Dr. Priya Sharma (Dermatologist - Apollo Skin Clinic, 1.8 km away)";
-          concernNote = "Oh dear, I am so sorry to hear about your skin irritation and discomfort. Skin rash can feel quite bothering, but stay calm—we will care for it together!";
-          firstAid = "1. **Cool Compress**: Apply a clean, cool damp cloth to the irritated area for 10-15 minutes.\n2. **Avoid Scratching**: Gently tap around the skin instead of scratching to prevent infection.\n3. **Gentle Cleanse**: Wash softly with lukewarm water and mild fragrance-free soap.";
-          adviceTips = "- Apply a gentle non-fragranced moisturizer or soothing aloe vera gel.\n- Wear loose, breathable cotton clothing.\n- Stay hydrated with 8-10 glasses of water daily.";
-        } else if (lowered.includes('headache') || lowered.includes('head') || lowered.includes('migraine')) {
-          spec = "Neurologist / General Physician";
-          doctorSuggestion = "Dr. Ramesh Kumar (General Physician - Care Clinic) / Dr. Ananya Reddy (KIMS Hospital)";
-          concernNote = "I'm so sorry you're experiencing head pain dear friend. Please rest your eyes and take it easy!";
-          firstAid = "1. **Rest in Dark Room**: Lie down in a quiet, dimly lit, cool room.\n2. **Hydration**: Drink a fresh glass of room-temperature water immediately.\n3. **Cold Compress**: Place a cool damp cloth across your forehead or temples.";
-          adviceTips = "- Dim digital screens and limit smartphone blue light.\n- Avoid loud noises, strong lights, and caffeine.\n- Practice 5 minutes of slow, deep breathing.";
-        } else if (lowered.includes('stomach') || lowered.includes('gastric') || lowered.includes('acid') || lowered.includes('nausea') || lowered.includes('digestion')) {
-          spec = "Gastroenterologist";
-          doctorSuggestion = "Dr. Ananya Reddy (General Physician - KIMS Multi-Specialty Hospital, 4.1 km away)";
-          concernNote = "Oh, stomach discomfort can be so draining! Please sit comfortably and relax while we get you some relief.";
-          firstAid = "1. **Sip Warm Water**: Sip warm water or mild ginger tea slowly.\n2. **Upright Posture**: Avoid lying down flat immediately after meals.\n3. **Gentle Heat**: Apply a mild warm compress over your abdomen.";
-          adviceTips = "- Eat light, easily digestible foods like plain rice, dal, or toast.\n- Avoid spicy, fried, or acidic foods.\n- Take small, frequent meals rather than heavy portions.";
-        } else if (lowered.includes('fever') || lowered.includes('cough') || lowered.includes('cold') || lowered.includes('flu') || lowered.includes('throat')) {
-          spec = "General Physician";
-          doctorSuggestion = "Dr. Ananya Reddy (General Physician - KIMS Multi-Specialty Hospital, 4.1 km away)";
-          concernNote = "I hear your concern about feeling feverish or unwell. Please bundle up comfortably and prioritize full rest today!";
-          firstAid = "1. **Monitor Temperature**: Check your body temperature with a digital thermometer.\n2. **Lukewarm Sponge**: If body temp is high, wipe forehead and neck with a lukewarm damp cloth.\n3. **Hydrate**: Sip warm fluids, herbal decoctions, or warm soup.";
-          adviceTips = "- Get 8 hours of restful sleep and avoid physical strain.\n- Warm salt water gargle 3 times a day for throat comfort.\n- Eat warm, nutritious home-cooked meals.";
+        if (currentLang === 'te') {
+          aiText = `మీరు అడిగిన '${text}' అంశానికి సంబంధించి సమాధానం మరియు సూచనలు:\n• మీ ఆరోగ్యానికి తగిన సమతుల్య ఆహారం మరియు తగినంత విశ్రాంతి తీసుకోండి.\n• రోజూ తగినంత నీరు తాగుతూ శరీరాన్ని తేమగా ఉంచుకోండి.\n• ఏవైనా ఇబ్బందులు ఉన్నట్లయితే సమీప డాక్టర్‌ను లేదా హెల్త్ ప్రొవైడర్‌ను సంప్రదించండి.`;
+        } else if (currentLang === 'hi') {
+          aiText = `आपके प्रश्न '${text}' से संबंधित सुझाव:\n• संतुलित आहार और पर्याप्त आराम लें।\n• शरीर को हाइड्रेटेड रखने के लिए पर्याप्त पानी पिएं।\n• किसी भी समस्या के लिए डॉक्टर की सलाह लें।`;
         } else {
-          spec = "General Physician";
-          doctorSuggestion = "Dr. Ananya Reddy (General Physician - KIMS Multi-Specialty Hospital, 4.1 km away)";
-          concernNote = `I hear your concern regarding '${text}'. As your Health Well-Wisher, your well-being is my top priority!`;
-          firstAid = "1. **Rest & Relax**: Sit down in a comfortable position and take deep, calming breaths.\n2. **Hydrate**: Sip a fresh glass of water to keep your body refreshed.\n3. **Monitor Symptoms**: Note down when symptoms started and if they worsen.";
-          adviceTips = "- Maintain adequate rest and avoid heavy physical exertion.\n- Eat wholesome, balanced home-cooked meals.\n- Consult a doctor if symptoms persist or escalate.";
+          aiText = `Regarding your query "${text}":\n• Maintain a balanced diet, adequate hydration, and sufficient daily rest.\n• Track any symptoms or changes in how you feel.\n• Consult a qualified doctor or healthcare specialist if you experience ongoing discomfort.`;
         }
-
-        specRec = spec;
-        urgency = spec !== "General Physician" ? 'MODERATE CONCERN' : 'LOW CONCERN';
-
-        aiText = `💙 **Warm Well-Wisher Concern**\n${concernNote}\n\n` +
-          `1️⃣ **WHAT YOU MUST DO FIRST (Immediate Relief & Action)**\n${firstAid}\n\n` +
-          `2️⃣ **SUGGESTED NEARBY SPECIALIST & DOCTOR**\n` +
-          `- **Recommended Specialist**: **${spec}**\n` +
-          `- **Nearby Doctor Suggestion**: ${doctorSuggestion}\n` +
-          `- *You can book an instant appointment with nearby doctors in our **Find Doctors** tab.*\n\n` +
-          `3️⃣ **WELL-WISHER ADVICES & LIFESTYLE TIPS**\n${adviceTips}\n\n` +
-          `(Note: AI Well-Wisher guidance only. Please consult a qualified doctor for clinical diagnosis.)`;
+        specRec = "General Physician";
       }
     }
+
+    // 1. Strict Temperature Symptom Parser (Only when fever/temperature context or explicit °F/°C units exist)
+    const isTempKeyword = lowered.includes('temp') || 
+                          lowered.includes('fever') || 
+                          lowered.includes('degree') || 
+                          lowered.includes('ఉష్ణోగ్రత') || 
+                          lowered.includes('జ్వరం') || 
+                          lowered.includes('డిగ్రీ') || 
+                          lowered.includes('तापमान') || 
+                          lowered.includes('बुखार');
+
+    const hasTempUnit = /\b\d+(\.\d+)?\s*(°\s*[fc]|celsius|fahrenheit|deg|degrees|°)\b/i.test(lowered) ||
+                        /\b(10[0-8]|9[5-9])\s*(f|farenheit)?\b/i.test(lowered) ||
+                        /\b(3[6-9]|4[0-2])\s*(c|celsius)?\b/i.test(lowered);
+
+    if (isTempKeyword || hasTempUnit) {
+      const match = text.match(/\b(\d{2,3}(\.\d)?)\b/);
+      const val = match ? Number(match[1]) : 101;
+
+      if (val >= 30 && val <= 110) {
+        const isFarenheit = val > 45;
+        const fVal = isFarenheit ? val : Math.round((val * 9/5) + 32);
+        const cVal = isFarenheit ? ((val - 32) * 5/9).toFixed(1) : val;
+
+        if (fVal >= 100) {
+          if (currentLang === 'te') {
+            aiText = `మీరు పేర్కొన్న శరీర ఉష్ణోగ్రత ${fVal}°F (${cVal}°C) చాలా ఎక్కువ జ్వరం. ముందుగా ప్రశాంతంగా విశ్రాంతి తీసుకోండి, నొసలు మరియు మెడపై చల్లని బట్టతో (Cool Compress) తుడవండి మరియు తగినంత ద్రవాహారం తీసుకోండి. ఈ జ్వరంతో పాటు దగ్గు, గొంతు నొప్పి లేదా వణుకు వంటి ఇతర లక్షణాలు ఏవైనా ఉన్నాయా?`;
+          } else if (currentLang === 'hi') {
+            aiText = `आपके शरीर का तापमान ${fVal}°F (${cVal}°C) उच्च बुखार दर्शाता है। कृपया आराम करें, माथे पर ठंडा कपड़ा रखें और पर्याप्त पानी/तरल पदार्थ लें। क्या इस बुखार के साथ खांसी, गले में खराश या ठंड लगने की समस्या है?`;
+          } else if (currentLang === 'ta') {
+            aiText = `உங்கள் உடல் வெப்பநிலை ${fVal}°F (${cVal}°C) அதிக காய்ச்சலைக் காட்டுகிறது. தயவுசெய்து ஓய்வெடுக்கவும், நீர்ச்சத்து எடுத்துக் கொள்ளவும். சளி அல்லது இருமல் உள்ளதா?`;
+          } else if (currentLang === 'kn') {
+            aiText = `ನಿಮ್ಮ ದೇಹದ ತಾಪಮಾನ ${fVal}°F (${cVal}°C) ಹೆಚ್ಚಾಗಿದೆ. ದಯವಿಟ್ಟು ವಿಶ್ರಾಂತಿ ತೆಗೆದುಕೊಳ್ಳಿ ಮತ್ತು ನೀರು ಕುಡಿಯಿರಿ. ಕೆಮ್ಮು ಅಥವಾ ಜ್ವರವಿದೆಯೇ?`;
+          } else {
+            aiText = `A body temperature of ${fVal}°F (${cVal}°C) indicates a high fever. Please rest comfortably, apply a cool compress to your forehead/neck, and stay hydrated. Do you have any chills, cough, body pain, or sore throat alongside this fever?`;
+          }
+          urgency = 'MODERATE CONCERN';
+          specRec = "General Physician";
+        } else {
+          if (currentLang === 'te') {
+            aiText = `శరీర ఉష్ణోగ్రత ${fVal}°F (${cVal}°C) నమోదు చేసుకున్నాను. ఈ లక్షణాలు లేదా శారీరక ఇబ్బంది ఎప్పటి నుండి ప్రారంభమైంది?`;
+          } else if (currentLang === 'hi') {
+            aiText = `शरीर का तापमान ${fVal}°F (${cVal}°C) नोट कर लिया गया है। यह लक्षण कब से शुरू हुआ है?`;
+          } else if (currentLang === 'ta') {
+            aiText = `உடல் வெப்பநிலை ${fVal}°F (${cVal}°C) பதிவு செய்யப்பட்டது. இந்த அறிகுறிகள் எப்போது தொடங்கின?`;
+          } else if (currentLang === 'kn') {
+            aiText = `ದೇಹದ ತಾಪಮಾನ ${fVal}°F (${cVal}°C) ದಾಖಲಿಸಲಾಗಿದೆ. ಈ ಲಕ್ಷಣಗಳು ಎಷ್ಟೊತ್ತಿನಿಂದ ಇವೆ?`;
+          } else {
+            aiText = `Noted body temperature of ${fVal}°F (${cVal}°C). How long have you been experiencing these symptoms?`;
+          }
+          specRec = "General Physician";
+        }
+      }
+    }
+
+    const isDoctorRequest = lowered.includes('suggest a doctor') || lowered.includes('suggest doctor') || lowered.includes('find doctor') || lowered.includes('need a doctor') || lowered.includes('recommend a doctor') || lowered.includes('డాక్టర్‌ని సూచించండి') || lowered.includes('డాక్టర్ వివరాలు');
+
+    const mapsUrl = (isEmergency || isDoctorRequest)
+      ? (userLocation?.lat && userLocation?.lng
+        ? `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${encodeURIComponent(specRec || 'Hospitals near me')}&travelmode=driving`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(specRec || 'Hospitals near me')}`)
+      : undefined;
 
     const aiMsg: Message = {
       id: `msg_ai_${Date.now()}`,
@@ -408,7 +596,8 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       urgency,
       isEmergency,
-      specialistRecommendation: specRec
+      specialistRecommendation: specRec,
+      googleMapsUrl: mapsUrl
     };
 
     setConversations(prev => prev.map(c => {
@@ -476,8 +665,37 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const addAppointment = (apptData: Omit<Appointment, 'id'>) => {
     const newAppt: Appointment = { ...apptData, id: `appt_${Date.now()}` };
-    setAppointments(prev => [newAppt, ...prev]);
+    setAppointments(prev => {
+      const updated = [newAppt, ...prev];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('HEALTH_APPOINTMENTS', JSON.stringify(updated));
+      }
+      return updated;
+    });
     pushTimelineEvent('Appointment Scheduled', `Appointment with ${newAppt.doctorName}`, `Scheduled for ${newAppt.date} at ${newAppt.time}`, newAppt.hospitalName);
+
+    // Sync appointment to backend FastAPI repository & AI Pre-Consultation Agent
+    try {
+      fetch('http://localhost:8000/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doctor_name: newAppt.doctorName,
+          specialization: newAppt.specialization,
+          hospital_name: newAppt.hospitalName,
+          date: newAppt.date,
+          time: newAppt.time,
+          consultation_type: newAppt.consultationType || 'In-Person',
+          disease_category: newAppt.diseaseCategory || newAppt.reason || 'General Checkup',
+          disease_description: newAppt.diseaseDescription || 'Patient booked appointment.',
+          symptoms_duration: newAppt.symptomsDuration || '3-5 Days',
+          severity_level: newAppt.severityLevel || 'Moderate',
+          patient_notes: newAppt.patientNotes || ''
+        })
+      }).catch(err => console.warn('Backend appointment sync warning:', err));
+    } catch (e) {
+      console.warn('Backend fetch exception:', e);
+    }
   };
 
   const addFoodScanResult = (foodData: Omit<FoodScanResult, 'id'>) => {
@@ -546,11 +764,14 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         timeline,
         foodScans,
         visionScans,
+        visionAnalyses: visionScans,
         conversations,
         activeConversationId,
         activeLanguage,
         isVoiceModalOpen,
         isEmergencyModalOpen,
+        userLocation,
+        setUserLocation,
         activeQRTokens,
         setProfile,
         setActiveLanguage,

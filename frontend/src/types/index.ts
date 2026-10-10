@@ -32,6 +32,7 @@ export interface Message {
   isEmergency?: boolean;
   audioUrl?: string;
   specialistRecommendation?: string;
+  googleMapsUrl?: string;
 }
 
 export interface AIConversation {

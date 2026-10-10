@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useHealth } from '../context/HealthContext';
 import { speechService } from '../services/speechService';
+import { detectLanguageFromText } from '../services/groqService';
 import { 
   Mic, 
   MicOff, 
@@ -16,9 +17,9 @@ import {
   X,
   Sparkles,
   Stethoscope,
-  ChevronRight
+  MapPin,
+  Globe
 } from 'lucide-react';
-import type { Language } from '../types';
 
 export const VoiceAssistantModal: React.FC = () => {
   const { 
@@ -42,6 +43,8 @@ export const VoiceAssistantModal: React.FC = () => {
   const [summaryReport, setSummaryReport] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isProcessingRef = useRef<boolean>(false);
+  const lastTextRef = useRef<string>('');
 
   const currentConv = conversations.find(c => c.id === activeConversationId) || conversations[0];
 
@@ -95,32 +98,62 @@ export const VoiceAssistantModal: React.FC = () => {
   };
 
   const processUserSpeech = async (text: string) => {
-    if (!text.trim() || isProcessing) return;
+    const trimmed = text.trim();
+    if (!trimmed || isProcessingRef.current) return;
+    
+    // Auto detect language ONLY if non-english native script or explicit verbal command is detected
+    const detectedLang = detectLanguageFromText(trimmed);
+    const targetLang = (detectedLang && detectedLang !== 'en') ? detectedLang : activeLanguage;
+    if (detectedLang && detectedLang !== 'en' && detectedLang !== activeLanguage) {
+      setActiveLanguage(detectedLang);
+    }
+
+    // Ignore duplicate exact text if received within 1 second
+    if (lastTextRef.current === trimmed) return;
+
+    isProcessingRef.current = true;
+    lastTextRef.current = trimmed;
     setIsProcessing(true);
     speechService.stopListening();
     setIsListening(false);
     
-    // Send to AI Copilot
-    const aiMsg = await sendMessageToCopilot(text);
-    setIsProcessing(false);
+    // Clear last processed text memory after 1 second
+    setTimeout(() => {
+      if (lastTextRef.current === trimmed) {
+        lastTextRef.current = '';
+      }
+    }, 1000);
 
-    // Speak AI response and auto-resume listening when TTS finishes
-    if (!isSpeakerMuted && aiMsg.text) {
-      setIsSpeaking(true);
-      speechService.speakText(
-        aiMsg.text, 
-        aiMsg.language || activeLanguage, 
-        () => {
-          setIsSpeaking(false);
-          if (isVoiceModalOpen && !conversationEnded) {
-            handleToggleListening(true);
-          }
-        }
-      );
-    } else {
+    const onTtsComplete = () => {
+      setIsSpeaking(false);
+      isProcessingRef.current = false;
       if (isVoiceModalOpen && !conversationEnded) {
         handleToggleListening(true);
       }
+    };
+
+    try {
+      // Send user message to AI Copilot
+      const aiMsg = await sendMessageToCopilot(trimmed);
+      setIsProcessing(false);
+
+      const responseLang = aiMsg?.language || targetLang;
+
+      // Speak AI response and auto-resume listening when TTS finishes
+      if (!isSpeakerMuted && aiMsg && aiMsg.text) {
+        setIsSpeaking(true);
+        speechService.speakText(
+          aiMsg.text, 
+          responseLang, 
+          onTtsComplete
+        );
+      } else {
+        onTtsComplete();
+      }
+    } catch (err) {
+      console.warn('Error processing user speech turn:', err);
+      setIsProcessing(false);
+      onTtsComplete();
     }
   };
 
@@ -158,6 +191,23 @@ export const VoiceAssistantModal: React.FC = () => {
     setIsVoiceModalOpen(false);
   };
 
+  const renderMessageContent = (text: string) => {
+    if (!text) return null;
+
+    // Clean out any raw http/https Google Maps URLs from text paragraph so plain URL text strings are never displayed
+    let cleanText = text.replace(/https?:\/\/(www\.)?google\.com\/maps[^\s)]+/g, '').trim();
+    cleanText = cleanText.replace(/\[📍?[^\]]*\]\(https?:\/\/[^)]+\)/g, '').trim();
+    cleanText = cleanText.replace(/మీ సమీప ఆసుపత్రి కోసం ఇక్కడ క్లిక్ చేయండి:\s*/g, '').trim();
+    cleanText = cleanText.replace(/यहाँ क्लिक करें:\s*/g, '').trim();
+    cleanText = cleanText.replace(/Click here for nearby hospital:\s*/g, '').trim();
+
+    return (
+      <div className="whitespace-pre-line leading-relaxed">
+        {cleanText}
+      </div>
+    );
+  };
+
   if (!isVoiceModalOpen) return null;
 
   return (
@@ -180,36 +230,52 @@ export const VoiceAssistantModal: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2">
-            <select
-              value={activeLanguage}
-              onChange={(e) => setActiveLanguage(e.target.value as Language)}
-              className="bg-slate-50 text-slate-800 text-xs font-extrabold px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none cursor-pointer"
-            >
-              <option value="en">English</option>
-              <option value="te">తెలుగు</option>
-              <option value="hi">हिन्दी</option>
-              <option value="ta">தமிழ்</option>
-              <option value="kn">కన్నడ</option>
-            </select>
+            <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-extrabold shadow-2xs">
+              <Globe className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+              <select
+                value={activeLanguage}
+                onChange={(e) => setActiveLanguage(e.target.value as any)}
+                className="bg-transparent font-extrabold text-blue-800 text-xs focus:outline-none cursor-pointer pr-1"
+                title="Select Manual AI Language"
+              >
+                <option value="en">English</option>
+                <option value="te">తెలుగు (Telugu)</option>
+                <option value="hi">हिन्दी (Hindi)</option>
+                <option value="ta">தமிழ் (Tamil)</option>
+                <option value="kn">ಕನ್ನಡ (Kannada)</option>
+              </select>
+            </div>
 
             <button
               onClick={handleClose}
-              className="p-2 rounded-full bg-slate-100 text-slate-400 hover:text-slate-800 transition-colors"
+              className="p-2 rounded-full bg-slate-100 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Voice AI Visualizer Ring Section */}
+        {/* Voice AI Visualizer Ring Section featuring AI Voice Graphic Background */}
         {!conversationEnded && (
-          <div className="bg-gradient-to-b from-blue-50/60 to-white py-6 border-b border-slate-100 flex flex-col items-center justify-center">
-            <div className="relative concentric-wave flex items-center justify-center">
-              <div className={`w-20 h-20 rounded-full flex flex-col items-center justify-center text-white shadow-xl transition-all ${
+          <div className="relative py-8 border-b border-slate-100 flex flex-col items-center justify-center overflow-hidden bg-slate-900">
+            {/* Background AI Voice Graphic Art */}
+            <div className="absolute inset-0 opacity-40 mix-blend-screen pointer-events-none">
+              <img 
+                src="/images/voice_assistant_bg.jpg" 
+                alt="AI Voice Assistant Soundwaves" 
+                className="w-full h-full object-cover"
+              />
+            </div>
+            
+            {/* Glassmorphic Gradient Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-slate-900/60 via-slate-900/40 to-slate-900/80 pointer-events-none" />
+
+            <div className="relative z-10 concentric-wave flex items-center justify-center">
+              <div className={`w-20 h-20 rounded-full flex flex-col items-center justify-center text-white shadow-2xl transition-all ${
                 isListening 
-                  ? 'bg-gradient-to-tr from-blue-600 to-cyan-500 scale-105 ring-4 ring-blue-200' 
+                  ? 'bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 scale-105 ring-4 ring-cyan-400/40' 
                   : isSpeaking
-                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-400 scale-105 ring-4 ring-emerald-200'
+                  ? 'bg-gradient-to-tr from-emerald-500 to-teal-400 scale-105 ring-4 ring-emerald-400/40'
                   : isProcessing
                   ? 'bg-gradient-to-tr from-amber-500 to-orange-400 scale-105'
                   : 'bg-blue-600'
@@ -223,7 +289,7 @@ export const VoiceAssistantModal: React.FC = () => {
 
             {/* Real-time Animated Waveform Bars */}
             {(isListening || isSpeaking) && (
-              <div className="flex items-center space-x-1.5 mt-3">
+              <div className="relative z-10 flex items-center space-x-1.5 mt-3">
                 <span className="wave-bar h-4"></span>
                 <span className="wave-bar h-7"></span>
                 <span className="wave-bar h-5"></span>
@@ -260,21 +326,51 @@ export const VoiceAssistantModal: React.FC = () => {
                     : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none font-medium'
                 }`}
               >
-                <p className="whitespace-pre-line">{msg.text}</p>
-                {msg.specialistRecommendation && (
-                  <div className="mt-3 p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-2 text-xs">
-                    <div className="flex items-center space-x-1.5 text-teal-900 font-extrabold">
-                      <Stethoscope className="w-4 h-4 text-teal-600" />
-                      <span>Recommended Specialist: {msg.specialistRecommendation}</span>
+                {renderMessageContent(msg.text)}
+                
+                {(msg.googleMapsUrl || msg.isEmergency) && (
+                  <div className="mt-3 p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl space-y-2.5 text-xs text-slate-800 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Stethoscope className="w-4 h-4 text-blue-600" />
+                        <span className="font-extrabold text-blue-950">
+                          {msg.specialistRecommendation ? `${msg.specialistRecommendation} Specialist` : 'Recommended Nearby Doctor'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        GPS Location Matched
+                      </span>
                     </div>
-                    <a
-                      href="#/appointments"
-                      onClick={handleClose}
-                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors"
-                    >
-                      <span>Book Consultation</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </a>
+
+                    <p className="text-[11px] text-slate-600 font-medium">
+                      Matched to your live location and reported health issues.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <a
+                        href={
+                          msg.googleMapsUrl ||
+                          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(msg.specialistRecommendation || 'Hospitals near me')}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={handleClose}
+                        className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                      >
+                        <MapPin className="w-4 h-4 text-rose-300 animate-bounce" />
+                        <span>📍 Directions from Google Maps</span>
+                      </a>
+
+                      <button
+                        onClick={() => {
+                          handleClose();
+                          window.location.hash = '/doctors';
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 font-extrabold text-xs shadow-2xs transition-colors cursor-pointer"
+                      >
+                        📅 Book Consultation
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className={`mt-1.5 text-[10px] font-medium text-right ${msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'}`}>

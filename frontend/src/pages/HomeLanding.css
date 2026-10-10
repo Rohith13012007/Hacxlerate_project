@@ -200,11 +200,10 @@
 /* Organic Soft Pastel Blue/Indigo Cloud Blob */
 .doctor-cloud-bg {
   position: absolute;
-  width: 105%;
-  height: 105%;
-  border-radius: 58% 42% 63% 37% / 45% 58% 42% 55%;
-  background: linear-gradient(135deg, rgba(224, 242, 254, 0.85) 0%, rgba(238, 242, 255, 0.75) 50%, rgba(204, 251, 241, 0.6) 100%);
-  filter: blur(8px);
+  width: 108%;
+  height: 108%;
+  border-radius: 2.5rem;
+  background: linear-gradient(135deg, rgba(186, 230, 253, 0.5) 0%, rgba(204, 251, 241, 0.4) 100%);
   z-index: 1;
 }
 
@@ -212,16 +211,18 @@
   position: relative;
   z-index: 2;
   width: 100%;
-  max-width: 24rem;
-  height: 25rem;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  max-width: 28rem;
+  height: 26rem;
+  border-radius: 2rem;
+  overflow: hidden;
+  border: 4px solid #ffffff;
+  box-shadow: 0 20px 45px -10px rgba(15, 46, 90, 0.18);
+  background: #ffffff;
 }
 
 @media (min-width: 640px) {
   .doctor-portrait-container {
-    max-width: 27rem;
+    max-width: 30rem;
     height: 28rem;
   }
 }
@@ -229,9 +230,10 @@
 .doctor-portrait-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  object-position: bottom center;
-  filter: drop-shadow(0 15px 25px rgba(15, 23, 42, 0.12));
+  object-fit: cover;
+  object-position: top center;
+  filter: contrast(1.03) brightness(1.02);
+  transition: transform 0.5s ease;
 }
 
 /* Circular Floating Badges with Icons matching screenshot */

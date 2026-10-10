@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, 
   Phone, 
+  Mail,
   ArrowLeft, 
   Lock, 
   Camera, 
@@ -27,7 +28,7 @@ interface PatientLoginProps {
 }
 
 type AuthStep = 'login' | 'otp' | 'register' | 'success';
-type PatientAuthMethod = 'mobile' | 'abha' | 'emergency';
+type PatientAuthMethod = 'mobile' | 'email' | 'abha' | 'emergency';
 type LanguageCode = 'en' | 'hi' | 'ta' | 'te';
 
 interface TranslationData {
@@ -92,8 +93,11 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
   const [fullName, setFullName] = useState('');
   const [countryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [emailAddress, setEmailAddress] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailSentReal, setEmailSentReal] = useState<boolean>(false);
 
   // ABHA ID Form State
   const [abhaNumber, setAbhaNumber] = useState('');
@@ -118,6 +122,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
   const handleFillDemoPatient = () => {
     setFullName('Rahul Sharma');
     setPhoneNumber('9876543210');
+    setEmailAddress('rahul.sharma@example.com');
     setAbhaNumber('14-8892-4102-9912');
     setRegAge(28);
     setRegAddress('123 Green Park, New Delhi, Delhi 110016');
@@ -177,6 +182,16 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
     return true;
   };
 
+  const validateEmail = (val: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!val.trim() || !emailRegex.test(val.trim())) {
+      setEmailError('Please enter a valid email address (e.g. name@gmail.com).');
+      return false;
+    }
+    setEmailError(null);
+    return true;
+  };
+
   const validateAbha = (val: string): boolean => {
     const clean = val.replace(/\D/g, '');
     if (val.includes('@')) {
@@ -189,6 +204,16 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
     }
     setAbhaError(null);
     return true;
+  };
+
+  const handlePhoneOrEmailPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedText = e.clipboardData.getData('text').trim();
+    if (pastedText.includes('@')) {
+      e.preventDefault();
+      setAuthMethod('email');
+      setEmailAddress(pastedText);
+      if (emailError) validateEmail(pastedText);
+    }
   };
 
   // STEP 1: Handle Send OTP & ABHA Login
@@ -213,21 +238,45 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
     }
 
     const isNameOk = validateName(fullName);
-    const isPhoneOk = validatePhone(phoneNumber);
-    if (!isNameOk || !isPhoneOk) return;
+    if (!isNameOk) return;
+
+    const isEmailMode = authMethod === 'email';
+
+    if (isEmailMode) {
+      const isEmailOk = validateEmail(emailAddress);
+      if (!isEmailOk) return;
+    } else {
+      const isPhoneOk = validatePhone(phoneNumber);
+      if (!isPhoneOk) return;
+    }
 
     setIsSubmitting(true);
     try {
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setSentOtpCode(generatedCode);
-      setCountdown(30);
-      setStep('otp');
+      const fallbackCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const contactVal = isEmailMode ? emailAddress.trim() : `${countryCode}${phoneNumber.trim()}`;
 
-      await fetch('http://localhost:8000/api/auth/send-otp', {
+      const res = await fetch('http://localhost:8000/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: fullName.trim(), phone: `${countryCode}${phoneNumber}` })
-      }).catch(() => null);
+        body: JSON.stringify({
+          contact: contactVal,
+          name: fullName.trim(),
+          type: isEmailMode ? 'email' : 'mobile'
+        })
+      }).then(r => r.json()).catch(() => null);
+
+      const codeToUse = res?.otp_code || fallbackCode;
+      setSentOtpCode(codeToUse);
+      setCountdown(30);
+      setEmailSentReal(Boolean(res?.email_sent));
+
+      if (res?.message) {
+        setBackendNotice(res.message);
+      } else {
+        setBackendNotice(isEmailMode ? `OTP dispatched to ${emailAddress}` : `OTP dispatched to +91 ${phoneNumber}`);
+      }
+
+      setStep('otp');
     } finally {
       setIsSubmitting(false);
     }
@@ -290,24 +339,72 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
 
     setIsSubmitting(true);
     try {
-      await login(
-        phoneNumber ? `${phoneNumber}@patient.healthcopilot.org` : 'patient@healthcopilot.org',
-        'otp-verified',
-        fullName.trim() || 'Patient'
-      );
-      setStep('success');
+      const isEmailMode = authMethod === 'email';
+      const contactVal = isEmailMode ? emailAddress.trim() : `${countryCode}${phoneNumber.trim()}`;
+
+      const res = await fetch('http://localhost:8000/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact: contactVal,
+          code: otpCode,
+          name: fullName.trim()
+        })
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      if (res && res.token) {
+        await login(
+          res.email || (isEmailMode ? emailAddress : `${phoneNumber}@patient.healthcopilot.org`),
+          'otp-verified',
+          res.full_name || fullName.trim() || 'Patient'
+        );
+        setStep('success');
+      } else {
+        await login(
+          isEmailMode ? emailAddress.trim() : `${phoneNumber}@patient.healthcopilot.org`,
+          'otp-verified',
+          fullName.trim() || 'Patient'
+        );
+        setStep('success');
+      }
+    } catch (err) {
+      setBackendNotice('Failed to verify OTP code. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleResendOTP = () => {
-    const freshCode = Math.floor(100000 + Math.random() * 900000).toString();
-    setSentOtpCode(freshCode);
-    setCountdown(30);
-    setBackendNotice(`Fresh OTP code ${freshCode} dispatched to +91 ${phoneNumber}`);
-    setTimeout(() => setBackendNotice(null), 4000);
+  const handleResendOTP = async () => {
+    const isEmailMode = authMethod === 'email';
+    const contactVal = isEmailMode ? emailAddress.trim() : `${countryCode}${phoneNumber.trim()}`;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact: contactVal,
+          name: fullName.trim(),
+          type: isEmailMode ? 'email' : 'mobile'
+        })
+      }).then(r => r.json()).catch(() => null);
+
+      const freshCode = res?.otp_code || Math.floor(100000 + Math.random() * 900000).toString();
+      setSentOtpCode(freshCode);
+      setCountdown(30);
+      setEmailSentReal(Boolean(res?.email_sent));
+
+      if (res?.message) {
+        setBackendNotice(res.message);
+      } else {
+        setBackendNotice(isEmailMode ? `Fresh OTP email sent to ${emailAddress}` : `Fresh OTP code ${freshCode} sent to +91 ${phoneNumber}`);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
 
   // STEP 3: Handle Create Account (Patient Registration -> Success -> Dashboard)
   const handleCreateAccount = async (e: React.FormEvent) => {
@@ -426,7 +523,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 </p>
               </div>
 
-              {/* Auth Mode Pill Tabs (New Apt Feature: Phone OTP vs ABHA ID vs Emergency SOS) */}
+              {/* Auth Mode Pill Tabs (Phone OTP vs Email OTP vs ABHA ID vs Emergency SOS) */}
               <div className="p-1 bg-slate-100 rounded-xl flex items-center gap-1 border border-slate-200/70">
                 <button
                   type="button"
@@ -435,6 +532,14 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 >
                   <Phone className="w-3 h-3" />
                   <span>Mobile OTP</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMethod('email'); setBackendNotice(null); }}
+                  className={`patient-auth-tab-btn ${authMethod === 'email' ? 'active' : ''}`}
+                >
+                  <Mail className="w-3 h-3" />
+                  <span>Email OTP</span>
                 </button>
                 <button
                   type="button"
@@ -450,7 +555,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                   className={`patient-auth-tab-btn emergency-tab ${authMethod === 'emergency' ? 'active' : ''}`}
                 >
                   <AlertTriangle className="w-3 h-3" />
-                  <span>Emergency SOS</span>
+                  <span>Emergency</span>
                 </button>
               </div>
 
@@ -477,7 +582,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                     </button>
                   </div>
                   
-                  {/* Field 1: Your Name (Unified Container with Icon & Top Label) */}
+                  {/* Field 1: Your Name */}
                   <div className={`unified-field-box ${nameError ? 'has-error' : ''}`}>
                     <User className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
                     <div className="flex-1 text-left">
@@ -505,7 +610,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                     </p>
                   )}
 
-                  {/* Field 2: Country Code + Phone Number (Integrated Unified Box) */}
+                  {/* Field 2: Country Code + Phone Number */}
                   <div className={`unified-field-box ${phoneError ? 'has-error' : ''}`}>
                     <Phone className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
                     <span className="text-xs font-bold text-slate-800 pr-2.5 border-r border-slate-200 select-none">
@@ -516,6 +621,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                       type="tel"
                       value={phoneNumber}
                       maxLength={10}
+                      onPaste={handlePhoneOrEmailPaste}
                       onChange={(e) => {
                         const val = e.target.value.replace(/\D/g, '');
                         setPhoneNumber(val);
@@ -533,7 +639,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                     </p>
                   )}
 
-                  {/* Send OTP Button (Deep Navy #0f2e5a) */}
+                  {/* Send OTP Button */}
                   <button
                     type="submit"
                     disabled={isSubmitting}
@@ -542,7 +648,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                     {isSubmitting ? 'Sending OTP...' : t.continueBtn}
                   </button>
 
-                  {/* OR Divider matching PDF */}
+                  {/* OR Divider */}
                   <div className="relative flex py-1 items-center">
                     <div className="flex-grow border-t border-slate-200" />
                     <span className="flex-shrink mx-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -551,7 +657,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                     <div className="flex-grow border-t border-slate-200" />
                   </div>
 
-                  {/* Continue with Google matching PDF */}
+                  {/* Continue with Google */}
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
@@ -568,7 +674,114 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 </form>
               )}
 
-              {/* MODE 2: Ayushman Bharat Digital Mission (ABHA ID) Login (New Apt Feature) */}
+              {/* MODE 1.5: Email OTP Flow */}
+              {authMethod === 'email' && (
+                <form onSubmit={handleSendOTP} noValidate className="space-y-3">
+                  {/* Demo fill quick toggle */}
+                  <div className="flex items-center justify-between pb-0.5">
+                    <span className="text-[11px] text-slate-500 font-medium">Enter your email address:</span>
+                    <button
+                      type="button"
+                      onClick={handleFillDemoPatient}
+                      className="text-[11px] text-teal-700 hover:text-teal-900 font-bold hover:underline cursor-pointer"
+                    >
+                      ✨ Fill Sample Details
+                    </button>
+                  </div>
+                  
+                  {/* Field 1: Your Name */}
+                  <div className={`unified-field-box ${nameError ? 'has-error' : ''}`}>
+                    <User className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
+                    <div className="flex-1 text-left">
+                      <span className="block text-[10px] text-slate-400 font-medium leading-none mb-0.5">
+                        {t.nameLabel}
+                      </span>
+                      <input
+                        id="login-email-name"
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => {
+                          setFullName(e.target.value);
+                          if (nameError) validateName(e.target.value);
+                        }}
+                        placeholder={t.namePlaceholder}
+                        required
+                        className="w-full bg-transparent p-0 text-sm font-semibold text-slate-900 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  {nameError && (
+                    <p className="text-xs text-rose-600 font-medium flex items-center gap-1 pl-1">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>{nameError}</span>
+                    </p>
+                  )}
+
+                  {/* Field 2: Email Address */}
+                  <div className={`unified-field-box ${emailError ? 'has-error' : ''}`}>
+                    <Mail className="w-4 h-4 text-teal-600 mr-2.5 shrink-0" />
+                    <div className="flex-1 text-left">
+                      <span className="block text-[10px] text-slate-400 font-medium leading-none mb-0.5">
+                        Email Address
+                      </span>
+                      <input
+                        id="login-email"
+                        type="email"
+                        value={emailAddress}
+                        onChange={(e) => {
+                          setEmailAddress(e.target.value);
+                          if (emailError) validateEmail(e.target.value);
+                        }}
+                        placeholder="rohith@gmail.com"
+                        required
+                        className="w-full bg-transparent p-0 text-sm font-semibold text-slate-900 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  {emailError && (
+                    <p className="text-xs text-rose-600 font-medium flex items-center gap-1 pl-1">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>{emailError}</span>
+                    </p>
+                  )}
+
+                  {/* Send Email OTP Button */}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="patient-navy-btn mt-2 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Mail className="w-4 h-4 text-emerald-400" />
+                    <span>{isSubmitting ? 'Sending Real Email OTP...' : 'Send OTP to Email'}</span>
+                  </button>
+
+                  {/* OR Divider */}
+                  <div className="relative flex py-1 items-center">
+                    <div className="flex-grow border-t border-slate-200" />
+                    <span className="flex-shrink mx-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      OR
+                    </span>
+                    <div className="flex-grow border-t border-slate-200" />
+                  </div>
+
+                  {/* Continue with Google */}
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    className="patient-google-btn cursor-pointer"
+                  >
+                    <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                    <span>Continue with Google</span>
+                  </button>
+                </form>
+              )}
+
+              {/* MODE 2: Ayushman Bharat Digital Mission (ABHA ID) Login */}
               {authMethod === 'abha' && (
                 <form onSubmit={handleSendOTP} className="space-y-3.5 text-left">
                   <div className="p-2.5 bg-teal-50 border border-teal-200 rounded-xl text-[11px] text-teal-800 flex items-start gap-2">
@@ -646,7 +859,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 </form>
               )}
 
-              {/* MODE 3: Emergency SOS Quick Triage Access (New Apt Feature) */}
+              {/* MODE 3: Emergency SOS Quick Triage Access */}
               {authMethod === 'emergency' && (
                 <div className="space-y-3.5 text-left">
                   <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1">
@@ -704,7 +917,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 </button>
               </div>
 
-              {/* Bottom Medical Illustration matching PDF Page 2 */}
+              {/* Bottom Medical Illustration */}
               <div className="patient-illustration-card flex flex-col items-center text-center space-y-2">
                 <div className="flex items-center justify-center -space-x-3 pt-0.5">
                   <img
@@ -730,7 +943,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
             </div>
           )}
 
-          {/* SCREEN 2: OTP VERIFICATION (Exact PDF Page 3) */}
+          {/* SCREEN 2: OTP VERIFICATION */}
           {step === 'otp' && (
             <div className="patient-card-container space-y-5 animate-fade-in">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -756,36 +969,62 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
 
               <div className="text-center space-y-1">
                 <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                  Verify Your Phone Number
+                  {authMethod === 'email' ? 'Verify Your Email Address' : 'Verify Your Phone Number'}
                 </h2>
                 <p className="text-xs text-slate-500">
-                  We have sent a 6-digit OTP to
+                  We have sent a 6-digit OTP code to
                 </p>
                 <p className="text-sm font-extrabold text-slate-900 font-mono tracking-wide">
-                  +91 {phoneNumber}
+                  {authMethod === 'email' ? emailAddress : `+91 ${phoneNumber}`}
                 </p>
               </div>
 
-              {/* Simulated Live SMS Alert for real / test phone numbers */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-medium text-center space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-center space-x-1.5 font-bold">
-                  <span>📱 SMS dispatched to +91 {phoneNumber || 'Your Number'}:</span>
-                  <span className="font-mono text-sm tracking-widest text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded font-black">{sentOtpCode}</span>
+              {/* Real Email / Phone Dispatch Notice Alert */}
+              {authMethod === 'email' ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-medium text-center space-y-1.5 shadow-xs">
+                  <div className="flex items-center justify-center space-x-1.5 font-bold">
+                    <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      {emailSentReal 
+                        ? `📧 Real OTP Email sent to ${emailAddress}. Check inbox & spam folder!`
+                        : `📧 OTP code for ${emailAddress}:`}
+                    </span>
+                    {!emailSentReal && (
+                      <span className="font-mono text-sm tracking-widest text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded font-black">
+                        {sentOtpCode}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOtpDigits(sentOtpCode.split(''))}
+                    className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs cursor-pointer inline-flex items-center gap-1 transition-colors"
+                  >
+                    <span>⚡ One-Tap Auto-fill Code ({sentOtpCode})</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setOtpDigits(sentOtpCode.split(''))}
-                  className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs cursor-pointer inline-flex items-center gap-1 transition-colors"
-                >
-                  <span>⚡ One-Tap Auto-fill Code ({sentOtpCode})</span>
-                </button>
-              </div>
+              ) : (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-medium text-center space-y-1.5 shadow-xs">
+                  <div className="flex items-center justify-center space-x-1.5 font-bold">
+                    <span>📱 SMS dispatched to +91 {phoneNumber || 'Your Number'}:</span>
+                    <span className="font-mono text-sm tracking-widest text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded font-black">{sentOtpCode}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOtpDigits(sentOtpCode.split(''))}
+                    className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs cursor-pointer inline-flex items-center gap-1 transition-colors"
+                  >
+                    <span>⚡ One-Tap Auto-fill Code ({sentOtpCode})</span>
+                  </button>
+                </div>
+              )}
 
               {backendNotice && (
                 <div role="alert" className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-medium text-center">
                   {backendNotice}
                 </div>
               )}
+
 
               <form onSubmit={handleVerifyOTP} className="space-y-5">
                 <div className="flex justify-center items-center gap-1.5 sm:gap-2" onPaste={handleOtpPaste}>

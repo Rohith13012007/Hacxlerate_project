@@ -1,12 +1,29 @@
 # AI Health Copilot – Personal AI Healthcare Assistant
 
-An AI-powered Personal Health Copilot web and mobile application designed to help individuals understand, organize, and manage their continuous healthcare journey.
+Our Health Copilot is a personal AI healthcare companion that brings medical records, health tracking, reminders, food analysis, doctor discovery, and conversational assistance together in one platform.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Main Features of Our Project
 
-### 1. 🎤 Live AI Voice Assistant (Continuous Speech-To-Text & TTS)
+1. **AI Health Assistant** — continuous interaction through voice and text.
+2. **Medical Report Analysis** — upload and understand blood reports, prescriptions, and other medical documents.
+3. **Camera-Based Health Observation** — analyze health-related images and provide appropriate informational guidance.
+4. **Symptom Assistant** — ask questions about symptoms and provide guidance on appropriate next steps.
+5. **Doctor Finder** — suggest relevant specialists and nearby doctors, with distance and Google Maps directions.
+6. **Food Scanner** — estimate calories, fats, and other nutritional information from food images.
+7. **Personal Medical History** — securely organize reports, prescriptions, diseases, and previous conversations.
+8. **QR Medical History Sharing** — allow users to share relevant medical information securely with doctors.
+9. **Multilingual Assistant** — listen and respond in supported languages (**English**, **Telugu**, **Hindi**, **Tamil**, and **Kannada**).
+10. **Health Dashboard** — track water intake, exercise, steps, and other health activities.
+11. **Medicine Reminders** — reminders for medicines and dosage schedules.
+12. **Appointment Reminders** — help users remember upcoming medical appointments.
+13. **Health Timeline and Reports** — organize health records over time and compare available results.
+14. **Conversation Transcripts** — preserve text transcripts of AI conversations for future reference.
+
+---
+
+### Detailed Architecture & Technical Breakdown
 - **Continuous Live Conversation**: Real-time microphone listening, soundwave animation, natural language processing, and spoken speech synthesis response.
 - **Multilingual Support**: Supports **English**, **Telugu (తెలుగు)**, **Hindi (हिन्दी)**, **Tamil (தமிழ்)**, and **Kannada (కన్నడ)** with automatic script/language detection.
 - **Dynamic Triage**: Automatically evaluates symptoms and classifies concern level into `LOW CONCERN`, `MODERATE CONCERN`, `URGENT`, or `EMERGENCY`.

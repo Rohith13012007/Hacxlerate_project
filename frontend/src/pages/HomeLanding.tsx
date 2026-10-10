@@ -134,11 +134,11 @@ export const HomeLanding: React.FC<HomeLandingProps> = ({ onNavigate }) => {
             {/* Center Doctor Portrait Graphic */}
             <div className="doctor-portrait-container">
               <img
-                src="/hero_doctor_art.png"
-                alt="HealthCopilot Physician"
+                src="/images/bright_doctor_hero.jpg"
+                alt="HealthCopilot Physician AI Assistant"
                 className="doctor-portrait-img"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/doctor_hero_hd.jpg';
+                  (e.target as HTMLImageElement).src = '/hero_doctor_art.png';
                 }}
               />
             </div>
