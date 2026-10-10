@@ -801,6 +801,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     <HealthContext.Provider
       value={{
         currentUser,
+        setCurrentUser,
         isAuthModalOpen,
         setIsAuthModalOpen,
         login,
