@@ -104,18 +104,18 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
   const [abhaAuthType, setAbhaAuthType] = useState<'aadhaar_otp' | 'mobile_otp'>('aadhaar_otp');
   const [abhaError, setAbhaError] = useState<string | null>(null);
 
-  // Step 2: OTP Verification State
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [sentOtpCode, setSentOtpCode] = useState<string>('482910');
   const [countdown, setCountdown] = useState<number>(22);
+  const [isUserRegistered, setIsUserRegistered] = useState<boolean | null>(null);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Step 3: Registration Form State
   const [regAge, setRegAge] = useState<number | ''>('');
+  const [regGender, setRegGender] = useState<'Male' | 'Female' | 'Other'>('Male');
   const [regAddress, setRegAddress] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState<string>(
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=160&auto=format&fit=crop&q=80'
-  );
+  const DEFAULT_PROFILE_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23e2e8f0'/><circle cx='50' cy='40' r='20' fill='%2394a3b8'/><path d='M 18 88 C 18 68, 82 68, 82 88 Z' fill='%2394a3b8'/></svg>";
+  const [avatarUrl, setAvatarUrl] = useState<string>(DEFAULT_PROFILE_AVATAR);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Quick 1-Click Demo Fill Helper
@@ -269,6 +269,9 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
       setSentOtpCode(codeToUse);
       setCountdown(30);
       setEmailSentReal(Boolean(res?.email_sent));
+      if (res?.is_registered !== undefined) {
+        setIsUserRegistered(res.is_registered);
+      }
 
       if (res?.message) {
         setBackendNotice(res.message);
@@ -358,13 +361,18 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
           'otp-verified',
           res.full_name || fullName.trim() || 'Patient'
         );
-        setStep('success');
       } else {
         await login(
           isEmailMode ? emailAddress.trim() : `${phoneNumber}@patient.healthcopilot.org`,
           'otp-verified',
           fullName.trim() || 'Patient'
         );
+      }
+
+      if (res?.is_new_user || isUserRegistered === false) {
+        setBackendNotice('Verified! New account detected — please complete your registration profile to access your portal.');
+        setStep('register');
+      } else {
         setStep('success');
       }
     } catch (err) {
@@ -411,14 +419,23 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
     e.preventDefault();
     setBackendNotice(null);
 
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      setBackendNotice('Phone number is mandatory. Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      const userEmail = emailAddress.trim() || `${cleanPhone}@patient.healthcopilot.org`;
       await register(
-        phoneNumber ? `${phoneNumber}@patient.healthcopilot.org` : 'patient@healthcopilot.org',
+        userEmail,
         'patient-secure-123',
         fullName.trim() || 'Patient',
         Number(regAge) || 28,
-        'Male'
+        regGender,
+        regAddress.trim(),
+        cleanPhone
       );
       setStep('success');
     } finally {
@@ -919,22 +936,16 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
 
               {/* Bottom Medical Illustration */}
               <div className="patient-illustration-card flex flex-col items-center text-center space-y-2">
-                <div className="flex items-center justify-center -space-x-3 pt-0.5">
-                  <img
-                    src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=80&auto=format&fit=crop&q=80"
-                    alt="Doctor 1"
-                    className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-xs"
-                  />
-                  <img
-                    src="https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=80&auto=format&fit=crop&q=80"
-                    alt="Doctor 2"
-                    className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-md z-10"
-                  />
-                  <img
-                    src="https://images.unsplash.com/photo-1594824813589-9a7243c3f914?w=80&auto=format&fit=crop&q=80"
-                    alt="Doctor 3"
-                    className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-xs"
-                  />
+                <div className="flex items-center justify-center space-x-2 pt-0.5">
+                  <div className="w-8 h-8 rounded-full bg-teal-100 border-2 border-white flex items-center justify-center text-teal-700 shadow-xs">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-blue-700 shadow-md z-10">
+                    <Stethoscope className="w-4.5 h-4.5" />
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 border-2 border-white flex items-center justify-center text-emerald-700 shadow-xs">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium leading-tight max-w-xs px-2">
                   AI-powered healthcare navigation and personal health management.
@@ -1145,7 +1156,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
               <form onSubmit={handleCreateAccount} className="space-y-3.5 text-left">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1">
-                    Full Name
+                    Full Name <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -1157,30 +1168,69 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1">
-                    Age
-                  </label>
-                  <input
-                    type="number"
-                    value={regAge}
-                    onChange={(e) => setRegAge(Number(e.target.value))}
-                    placeholder="28"
-                    required
-                    className="patient-std-input"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1">
+                      Age <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={regAge}
+                      onChange={(e) => setRegAge(Number(e.target.value))}
+                      placeholder="28"
+                      required
+                      className="patient-std-input"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1">
+                      Gender <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={regGender}
+                      onChange={(e) => setRegGender(e.target.value as any)}
+                      className="patient-std-input font-semibold"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1">
-                    Phone Number
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1 flex items-center justify-between">
+                    <span>Phone Number <span className="text-rose-500">*</span></span>
+                    <span className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">(Mandatory)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-2.5 rounded-xl bg-slate-100 border border-slate-300 font-bold text-slate-700 text-xs select-none">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                      placeholder="9876543210"
+                      maxLength={10}
+                      required
+                      className="patient-std-input font-mono flex-1"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 ml-1 flex items-center justify-between">
+                    <span>Email Address</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">(Optional)</span>
                   </label>
                   <input
-                    type="text"
-                    readOnly
-                    disabled
-                    value={`+91 ${phoneNumber}`}
-                    className="patient-std-input font-mono"
+                    type="email"
+                    value={emailAddress}
+                    onChange={(e) => setEmailAddress(e.target.value)}
+                    placeholder="rahul.sharma@example.com"
+                    className="patient-std-input"
                   />
                 </div>
 
@@ -1251,7 +1301,7 @@ export const PatientLogin: React.FC<PatientLoginProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Age & Location:</span>
-                  <span className="font-bold text-slate-800">{regAge} yrs • New Delhi</span>
+                  <span className="font-bold text-slate-800">{regAge ? `${regAge} yrs` : ''}{regAddress ? ` • ${regAddress}` : ''}</span>
                 </div>
               </div>
 

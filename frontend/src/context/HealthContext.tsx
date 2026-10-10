@@ -41,15 +41,19 @@ export interface AuthUser {
   age: number;
   gender: string;
   blood_group: string;
+  phone?: string;
+  address?: string;
+  avatarUrl?: string;
   token?: string;
 }
 
 interface HealthContextType {
   currentUser: AuthUser | null;
+  setCurrentUser: React.Dispatch<React.SetStateAction<AuthUser | null>>;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
-  login: (email: string, password: string, fullName?: string, age?: number, gender?: string) => Promise<boolean>;
-  register: (email: string, password: string, fullName: string, age?: number, gender?: string) => Promise<boolean>;
+  login: (email: string, password: string, fullName?: string, age?: number, gender?: string, address?: string, phone?: string) => Promise<boolean>;
+  register: (email: string, password: string, fullName: string, age?: number, gender?: string, address?: string, phone?: string) => Promise<boolean>;
   logout: () => void;
 
   profile: UserHealthProfile;
@@ -171,7 +175,7 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
-  const login = async (email: string, password: string, fullName?: string, age?: number, gender?: string): Promise<boolean> => {
+  const login = async (email: string, password: string, fullName?: string, age?: number, gender?: string, address?: string, phone?: string): Promise<boolean> => {
     try {
       const res = await fetch('http://localhost:8000/api/auth/login', {
         method: 'POST',
@@ -180,9 +184,21 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
       if (!res.ok) throw new Error('API unavailable');
       const data: AuthUser = await res.json();
+      if (address) data.address = address;
+      if (phone) data.phone = phone;
       setCurrentUser(data);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(data));
-      setProfile(prev => ({ ...prev, name: data.full_name, age: data.age, gender: data.gender as any, bloodGroup: data.blood_group }));
+      setProfile(prev => ({
+        ...prev,
+        name: data.full_name,
+        email: data.email,
+        phone: data.phone || phone || prev.phone,
+        address: data.address || address || prev.address,
+        age: data.age,
+        gender: data.gender as any,
+        bloodGroup: data.blood_group
+      }));
+      if (address) setUserLocation(prev => ({ ...prev, address }));
       return true;
     } catch (e) {
       const resolvedName = fullName || (email.includes('@') ? email.split('@')[0] : email);
@@ -193,16 +209,28 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         age: age || 28,
         gender: gender || 'Male',
         blood_group: 'B+',
+        address: address || '',
+        phone: phone || '',
         token: `token_${Date.now()}`
       };
       setCurrentUser(demoUser);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(demoUser));
-      setProfile(prev => ({ ...prev, name: resolvedName, age: demoUser.age }));
+      setProfile(prev => ({
+        ...prev,
+        name: resolvedName,
+        email,
+        phone: phone || '',
+        address: address || '',
+        age: demoUser.age,
+        gender: demoUser.gender as any,
+        bloodGroup: demoUser.blood_group
+      }));
+      if (address) setUserLocation(prev => ({ ...prev, address }));
       return true;
     }
   };
 
-  const register = async (email: string, password: string, fullName: string, age?: number, gender?: string): Promise<boolean> => {
+  const register = async (email: string, password: string, fullName: string, age?: number, gender?: string, address?: string, phone?: string): Promise<boolean> => {
     try {
       const res = await fetch('http://localhost:8000/api/auth/register', {
         method: 'POST',
@@ -211,9 +239,21 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
       if (!res.ok) return false;
       const data: AuthUser = await res.json();
+      if (address) data.address = address;
+      if (phone) data.phone = phone;
       setCurrentUser(data);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(data));
-      setProfile(prev => ({ ...prev, name: data.full_name, age: data.age, gender: data.gender as any, bloodGroup: data.blood_group }));
+      setProfile(prev => ({
+        ...prev,
+        name: data.full_name,
+        email: data.email,
+        phone: data.phone || phone || prev.phone,
+        address: data.address || address || prev.address,
+        age: data.age,
+        gender: data.gender as any,
+        bloodGroup: data.blood_group
+      }));
+      if (address) setUserLocation(prev => ({ ...prev, address }));
       return true;
     } catch (e) {
       const demoUser: AuthUser = {
@@ -223,11 +263,23 @@ export const HealthProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         age: age || 28,
         gender: gender || 'Male',
         blood_group: 'B+',
+        address: address || '',
+        phone: phone || '',
         token: `token_${Date.now()}`
       };
       setCurrentUser(demoUser);
       localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(demoUser));
-      setProfile(prev => ({ ...prev, name: fullName, age: age || 28, gender: (gender || 'Male') as any }));
+      setProfile(prev => ({
+        ...prev,
+        name: fullName,
+        email,
+        phone: phone || '',
+        address: address || '',
+        age: age || 28,
+        gender: (gender || 'Male') as any,
+        bloodGroup: 'B+'
+      }));
+      if (address) setUserLocation(prev => ({ ...prev, address }));
       return true;
     }
   };

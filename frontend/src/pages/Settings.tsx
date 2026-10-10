@@ -1,24 +1,95 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHealth } from '../context/HealthContext';
 import { SafetyBanner } from '../components/SafetyBanner';
-import { Settings as SettingsIcon, CheckCircle2, Key, Cpu, ShieldCheck } from 'lucide-react';
+import { Settings as SettingsIcon, CheckCircle2, Key, Cpu, ShieldCheck, Camera, Upload, Trash2 } from 'lucide-react';
 import { getGroqApiKey, setStoredGroqApiKey } from '../services/groqService';
 
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23e2e8f0'/><circle cx='50' cy='40' r='20' fill='%2394a3b8'/><path d='M 18 88 C 18 68, 82 68, 82 88 Z' fill='%2394a3b8'/></svg>";
+
 export const Settings: React.FC = () => {
-  const { profile, setProfile } = useHealth();
+  const { profile, setProfile, currentUser, setCurrentUser } = useHealth();
   const [activeTab, setActiveTab] = useState<string>('Profile');
-  const [name, setName] = useState(profile.name);
-  const [email, setEmail] = useState('rohith@example.com');
-  const [phone, setPhone] = useState('+91 98765 43210');
-  const [gender, setGender] = useState(profile.gender);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [name, setName] = useState(currentUser?.full_name || profile.name || '');
+  const [email, setEmail] = useState(currentUser?.email || profile.email || '');
+  const [phone, setPhone] = useState(currentUser?.phone || profile.phone || '');
+  const [age, setAge] = useState<number>(currentUser?.age || profile.age || 28);
+  const [gender, setGender] = useState<string>(currentUser?.gender || profile.gender || 'Male');
+  const [bloodGroup, setBloodGroup] = useState<string>(currentUser?.blood_group || profile.bloodGroup || 'B+');
+  const [address, setAddress] = useState<string>(currentUser?.address || profile.address || '');
+  const [avatarUrl, setAvatarUrl] = useState<string>(currentUser?.avatarUrl || profile.avatarUrl || DEFAULT_AVATAR);
+
   const [groqKey, setGroqKey] = useState(getGroqApiKey());
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    if (currentUser || profile) {
+      setName(currentUser?.full_name || profile.name || '');
+      setEmail(currentUser?.email || profile.email || '');
+      setPhone(currentUser?.phone || profile.phone || '');
+      setAge(currentUser?.age || profile.age || 28);
+      setGender(currentUser?.gender || profile.gender || 'Male');
+      setBloodGroup(currentUser?.blood_group || profile.bloodGroup || 'B+');
+      setAddress(currentUser?.address || profile.address || '');
+      setAvatarUrl(currentUser?.avatarUrl || profile.avatarUrl || DEFAULT_AVATAR);
+    }
+  }, [currentUser, profile]);
+
   const tabs = ['Profile', 'AI Model & Groq API', 'Preferences', 'Notifications', 'Privacy & Security'];
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('File size exceeds 5MB limit. Please choose a smaller image.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setAvatarUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleResetPhoto = () => {
+    setAvatarUrl(DEFAULT_AVATAR);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    setProfile({ ...profile, name, gender });
+    setProfile({
+      ...profile,
+      name,
+      email,
+      phone,
+      address,
+      avatarUrl,
+      age: Number(age) || 28,
+      gender: gender as any,
+      bloodGroup
+    });
+    if (currentUser && setCurrentUser) {
+      const updatedUser = {
+        ...currentUser,
+        full_name: name,
+        email,
+        phone,
+        address,
+        avatarUrl,
+        age: Number(age) || 28,
+        gender,
+        blood_group: bloodGroup
+      };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('HEALTH_COPILOT_USER', JSON.stringify(updatedUser));
+    }
     if (groqKey) {
       setStoredGroqApiKey(groqKey);
     }
@@ -71,20 +142,59 @@ export const Settings: React.FC = () => {
             )}
           </div>
 
-          {/* User Photo edit */}
-          <div className="flex items-center space-x-4">
-            <img
-              src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop"
-              alt="Profile photo"
-              className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-md"
+          {/* User Photo Edit & Upload */}
+          <div className="flex items-center space-x-5">
+            <div className="relative">
+              <img
+                src={avatarUrl}
+                alt="Profile photo"
+                className="w-20 h-20 rounded-full object-cover border-2 border-blue-500 shadow-md bg-slate-100"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-0 right-0 p-1.5 rounded-full bg-blue-600 text-white shadow-md hover:bg-blue-700 transition-colors cursor-pointer"
+                title="Upload Profile Picture"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoUpload}
+              className="hidden"
             />
-            <button
-              type="button"
-              onClick={() => alert('Photo updated!')}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-blue-600 font-bold text-xs border border-slate-200 cursor-pointer"
-            >
-              Change Photo
-            </button>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 cursor-pointer flex items-center space-x-1.5 transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload New Photo</span>
+                </button>
+
+                {avatarUrl !== DEFAULT_AVATAR && (
+                  <button
+                    type="button"
+                    onClick={handleResetPhoto}
+                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs border border-slate-200 cursor-pointer flex items-center space-x-1 transition-colors"
+                    title="Remove Photo"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 font-medium">
+                JPG, PNG or GIF (Max 5MB limit). Click upload to choose from device.
+              </p>
+            </div>
           </div>
 
           {/* Form Fields */}
@@ -95,6 +205,7 @@ export const Settings: React.FC = () => {
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                placeholder="Rohith Kumar"
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
               />
             </div>
@@ -105,6 +216,7 @@ export const Settings: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="rohith@gmail.com"
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
               />
             </div>
@@ -115,6 +227,18 @@ export const Settings: React.FC = () => {
                 type="text"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                placeholder="9876543210"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="text-slate-600 font-bold block mb-1">Age</label>
+              <input
+                type="number"
+                value={age}
+                onChange={(e) => setAge(Number(e.target.value))}
+                placeholder="28"
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
               />
             </div>
@@ -123,7 +247,7 @@ export const Settings: React.FC = () => {
               <label className="text-slate-600 font-bold block mb-1">Gender</label>
               <select
                 value={gender}
-                onChange={(e) => setGender(e.target.value as any)}
+                onChange={(e) => setGender(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
               >
                 <option value="Male">Male</option>
@@ -131,8 +255,38 @@ export const Settings: React.FC = () => {
                 <option value="Other">Other</option>
               </select>
             </div>
+
+            <div>
+              <label className="text-slate-600 font-bold block mb-1">Blood Group</label>
+              <select
+                value={bloodGroup}
+                onChange={(e) => setBloodGroup(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium font-mono"
+              >
+                <option value="A+">A+</option>
+                <option value="A-">A-</option>
+                <option value="B+">B+</option>
+                <option value="B-">B-</option>
+                <option value="O+">O+</option>
+                <option value="O-">O-</option>
+                <option value="AB+">AB+</option>
+                <option value="AB-">AB-</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="text-slate-600 font-bold block mb-1">Street Address / Location</label>
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="123 Green Park, New Delhi, Delhi 110016"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+              />
+            </div>
           </div>
         </div>
+
 
         {/* Groq API Key Configuration Card */}
         <div className="app-card p-6 space-y-4">

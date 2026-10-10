@@ -20,8 +20,9 @@ export const AuthModal: React.FC = () => {
   const [otpDigits, setOtpDigits] = useState(['4', '7', '2', '9', '1', '8']);
   const [fullName, setFullName] = useState('Rahul Sharma');
   const [age, setAge] = useState<number>(28);
-  const [address, setAddress] = useState('123 Green Park, New Delhi, Delhi 110016');
-  const [email] = useState('rahul.sharma@example.com');
+  const [address, setAddress] = useState('');
+  const [email, setEmail] = useState('');
+  const [regGender, setRegGender] = useState('Male');
   const [password] = useState('password123');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,9 +44,23 @@ export const AuthModal: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const ok = await login(email || `${phoneNumber}@healthcopilot.com`, password);
+      const userContact = `${phoneNumber}@healthcopilot.com`;
+      const checkRes = await fetch('http://localhost:8000/api/auth/check-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneNumber, email: userContact })
+      }).then(r => r.json()).catch(() => ({ registered: false }));
+
+      const ok = await login(email || userContact, password);
       if (ok) {
-        setStep(3); // Go to complete registration profile step
+        if (checkRes.registered) {
+          // Already registered user -> direct login & close modal!
+          setIsAuthModalOpen(false);
+          setStep(1);
+        } else {
+          // New user -> must complete registration profile step 3 first!
+          setStep(3);
+        }
       } else {
         setError('Invalid OTP code.');
       }
@@ -60,7 +75,8 @@ export const AuthModal: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      await register(email, password, fullName, age, 'Male');
+      const userEmail = email.trim() || `${phoneNumber}@healthcopilot.com`;
+      await register(userEmail, password, fullName, age, regGender, address, phoneNumber);
       setIsAuthModalOpen(false);
       setStep(1);
     } catch (err: any) {
@@ -239,9 +255,9 @@ export const AuthModal: React.FC = () => {
             <div className="flex flex-col items-center justify-center space-y-1.5">
               <div className="relative">
                 <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop"
+                  src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23e2e8f0'/><circle cx='50' cy='40' r='20' fill='%2394a3b8'/><path d='M 18 88 C 18 68, 82 68, 82 88 Z' fill='%2394a3b8'/></svg>"
                   alt="Profile"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-blue-600 shadow-xs"
+                  className="w-16 h-16 rounded-full object-cover border-2 border-blue-600 shadow-xs bg-slate-100"
                 />
                 <button
                   type="button"
@@ -276,12 +292,20 @@ export const AuthModal: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-slate-700 font-bold block mb-1">Phone Number</label>
-                  <input
-                    type="text"
-                    value={`+91 ${phoneNumber}`}
-                    disabled
-                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2 text-slate-500 font-bold cursor-not-allowed"
-                  />
+                  <div className="flex items-center space-x-1.5">
+                    <span className="px-2.5 py-2 rounded-xl bg-slate-100 border border-slate-300 font-bold text-slate-700 text-xs select-none">
+                      +91
+                    </span>
+                    <input
+                      type="text"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                      placeholder="9876543210"
+                      maxLength={10}
+                      required
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 font-semibold focus:outline-none focus:border-blue-600"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -293,6 +317,7 @@ export const AuthModal: React.FC = () => {
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Enter your street address, city, state"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-slate-900 font-semibold focus:outline-none focus:border-blue-600"
                   />
                 </div>

@@ -3,6 +3,10 @@ export type Language = 'en' | 'te' | 'hi' | 'ta' | 'kn';
 export interface UserHealthProfile {
   id: string;
   name: string;
+  avatarUrl?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
   age: number;
   gender: 'Male' | 'Female' | 'Other';
   bloodGroup: string;

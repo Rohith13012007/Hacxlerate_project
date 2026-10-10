@@ -21,6 +21,7 @@ class AuthResponse(BaseModel):
     age: int
     gender: str
     blood_group: str
+    is_new_user: Optional[bool] = False
 
 class ChatRequest(BaseModel):
     message: str

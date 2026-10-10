@@ -265,7 +265,7 @@ def login_user(req: LoginRequest, db: Session = Depends(get_db)):
     )
 
 @app.post("/api/auth/send-otp")
-def send_otp(req: Dict[str, Any]):
+def send_otp(req: Dict[str, Any], db: Session = Depends(get_db)):
     import random
     import time
     
@@ -279,6 +279,10 @@ def send_otp(req: Dict[str, Any]):
     clean_contact = contact.strip().lower() if "@" in contact else contact.strip()
     is_email = "@" in clean_contact or contact_type == "email"
 
+    user_email = clean_contact if is_email else f"{clean_contact}@patient.healthcopilot.org"
+    existing_user = db.query(User).filter((User.email == user_email) | (User.email == clean_contact)).first()
+    is_registered = existing_user is not None
+
     # Generate random 6-digit OTP
     otp_code = str(random.randint(100000, 999999))
     
@@ -288,10 +292,11 @@ def send_otp(req: Dict[str, Any]):
         "expires_at": time.time() + 600,
         "name": name,
         "contact": clean_contact,
-        "is_email": is_email
+        "is_email": is_email,
+        "is_registered": is_registered
     }
 
-    log_audit("AUTH_SERVICE", "SEND_OTP", f"Generated OTP for {clean_contact} ({name})")
+    log_audit("AUTH_SERVICE", "SEND_OTP", f"Generated OTP for {clean_contact} ({name}) - Registered: {is_registered}")
 
     if is_email:
         sent_ok, detail = email_service.send_otp_email(clean_contact, otp_code, name)
@@ -302,7 +307,8 @@ def send_otp(req: Dict[str, Any]):
                 "status": "DELIVERED",
                 "delivered_via": "EMAIL",
                 "email_sent": True,
-                "otp_code": otp_code
+                "otp_code": otp_code,
+                "is_registered": is_registered
             }
         else:
             return {
@@ -312,7 +318,8 @@ def send_otp(req: Dict[str, Any]):
                 "delivered_via": "SYSTEM_NOTICE",
                 "email_sent": False,
                 "detail": detail,
-                "otp_code": otp_code
+                "otp_code": otp_code,
+                "is_registered": is_registered
             }
     else:
         return {
@@ -321,8 +328,24 @@ def send_otp(req: Dict[str, Any]):
             "status": "DELIVERED",
             "delivered_via": "SMS",
             "email_sent": False,
-            "otp_code": otp_code
+            "otp_code": otp_code,
+            "is_registered": is_registered
         }
+
+
+@app.post("/api/auth/check-user")
+def check_user(req: Dict[str, Any], db: Session = Depends(get_db)):
+    contact = req.get("contact") or req.get("email") or req.get("phone", "")
+    if not contact:
+        return {"registered": False}
+    clean_contact = contact.strip().lower() if "@" in contact else contact.strip()
+    user_email = clean_contact if "@" in clean_contact else f"{clean_contact}@patient.healthcopilot.org"
+    existing = db.query(User).filter((User.email == user_email) | (User.email == clean_contact)).first()
+    return {
+        "registered": existing is not None,
+        "email": existing.email if existing else user_email,
+        "full_name": existing.full_name if existing else None
+    }
 
 
 @app.post("/api/auth/verify-otp", response_model=AuthResponse)
@@ -358,11 +381,13 @@ def verify_otp(req: Dict[str, Any], db: Session = Depends(get_db)):
 
     resolved_name = full_name or (stored_entry.get("name") if stored_entry else "") or user_email.split("@")[0].title()
 
-    # Find or create user
+    # Find user
     patient_repo = PatientRepository(db)
-    user = db.query(User).filter(User.email == user_email).first()
+    user = db.query(User).filter((User.email == user_email) | (User.email == clean_contact)).first()
+    is_new_user = False
 
     if not user:
+        is_new_user = True
         user_id = f"usr_{uuid.uuid4().hex[:10]}"
         hashed_pwd = hash_password("otp-authenticated-secure-pass")
         user = User(
@@ -401,8 +426,10 @@ def verify_otp(req: Dict[str, Any], db: Session = Depends(get_db)):
         full_name=user.full_name,
         age=profile.age if profile else 28,
         gender=profile.gender if profile else "Male",
-        blood_group=profile.blood_group if profile else "B+"
+        blood_group=profile.blood_group if profile else "B+",
+        is_new_user=is_new_user
     )
+
 
 
 # --- REAL-TIME MULTIMODAL LLM VISION ANALYSIS (FOOD & INJURY SCANS) ---
